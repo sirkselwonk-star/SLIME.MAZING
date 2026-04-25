@@ -192,10 +192,6 @@ function buildLevel() {
               col: Math.floor((mazeData.exitWorld.x - mazeData.offsetX) / mazeData.corridorSize) }
         );
 
-        // Gallery — SLIME NFT paintings on walls
-        gallery = new GalleryManager();
-        gallery.placeArtwork(mazeData.wallMeshes, THREE);
-
         // Position camera at start
         camera.position.set(
             mazeData.startWorld.x,
@@ -204,8 +200,14 @@ function buildLevel() {
         );
         camera.quaternion.identity();
 
-        // Hide loading
-        if (loadingEl) loadingEl.style.display = 'none';
+        // Gallery — SLIME NFT paintings on walls with loading progress
+        gallery = new GalleryManager();
+        const loadingText = loadingEl?.querySelector('p');
+        gallery.placeArtwork(mazeData.wallMeshes, THREE, (loaded, total) => {
+            if (loadingText) loadingText.textContent = `LOADING GALLERY: ${loaded} / ${total}`;
+        }).then(() => {
+            if (loadingEl) loadingEl.style.display = 'none';
+        });
     });
 }
 

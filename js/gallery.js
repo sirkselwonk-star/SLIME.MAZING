@@ -1072,7 +1072,12 @@ export class GalleryManager {
         this._worldPos = null; // reusable vector
     }
 
-    placeArtwork(wallMeshes, THREE) {
+    /**
+     * Place paintings on walls and load textures.
+     * Returns a Promise that resolves when all textures are loaded.
+     * @param {function} onProgress - called with (loaded, total) as textures arrive
+     */
+    placeArtwork(wallMeshes, THREE, onProgress) {
         this._disposed = false;
         this._THREE = THREE;
         this._worldPos = new THREE.Vector3();
@@ -1091,6 +1096,10 @@ export class GalleryManager {
         }
 
         const count = Math.min(keys.length, urlPool.length);
+
+        // Build all painting meshes synchronously
+        const toLoad = []; // paintings that need network fetch
+        let loaded = 0;
 
         for (let i = 0; i < count; i++) {
             const key = keys[i];
@@ -1146,27 +1155,63 @@ export class GalleryManager {
             const painting = { group, artMat, plateMat, url, hiRes: false };
             this.paintings.push(painting);
 
-            // Load image — create thumb immediately, cache image for hi-res on demand
+            // Cached from a previous level — instant
             if (thumbCache.has(url)) {
                 artMat.map = thumbCache.get(url);
                 artMat.color.set(0xffffff);
                 artMat.needsUpdate = true;
+                loaded++;
             } else {
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                img.onload = () => {
-                    if (this._disposed) return;
-                    imageCache.set(url, img);
-                    const thumb = downscale(img, THUMB_SIZE, THREE);
-                    thumbCache.set(url, thumb);
-                    artMat.map = thumb;
-                    artMat.color.set(0xffffff);
-                    artMat.needsUpdate = true;
-                };
-                img.onerror = () => { /* keep placeholder */ };
-                img.src = url;
+                toLoad.push({ artMat, url });
             }
         }
+
+        // Report initial cached progress
+        if (onProgress) onProgress(loaded, count);
+
+        // If everything was cached, resolve immediately
+        if (toLoad.length === 0) {
+            return Promise.resolve();
+        }
+
+        // Load uncached images in batches to avoid hanging the main thread
+        const BATCH = 20;
+        return new Promise((resolve) => {
+            let batchIdx = 0;
+            const launchBatch = () => {
+                const end = Math.min(batchIdx + BATCH, toLoad.length);
+                for (let j = batchIdx; j < end; j++) {
+                    const { artMat, url } = toLoad[j];
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => {
+                        if (this._disposed) { done(); return; }
+                        imageCache.set(url, img);
+                        const thumb = downscale(img, THUMB_SIZE, THREE);
+                        thumbCache.set(url, thumb);
+                        artMat.map = thumb;
+                        artMat.color.set(0xffffff);
+                        artMat.needsUpdate = true;
+                        done();
+                    };
+                    img.onerror = () => done();
+                    img.src = url;
+                }
+                batchIdx = end;
+                // Schedule next batch on next frame to keep UI responsive
+                if (batchIdx < toLoad.length) {
+                    requestAnimationFrame(launchBatch);
+                }
+            };
+
+            const done = () => {
+                loaded++;
+                if (onProgress) onProgress(loaded, count);
+                if (loaded >= count) resolve();
+            };
+
+            launchBatch();
+        });
     }
 
     /** Call from animate loop — manages LOD texture swaps based on player distance */
