@@ -14,7 +14,7 @@ export class ShipControls {
         this.brakeFactor = 0.88;   // slightly less damping for higher top speed
         this.rotSpeed = 1.0;       // slower roll
         this.rotDamping = 0.88;
-        this.maxSpeed = 14;
+        this.maxSpeed = 20;
         this.mouseSensitivity = 0.003;
 
         // Mouse smoothing state
