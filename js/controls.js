@@ -10,11 +10,11 @@ export class ShipControls {
         this.rotVelocity = { pitch: 0, yaw: 0, roll: 0 };
 
         // Tuning — comfort-focused
-        this.thrustPower = 12;
-        this.brakeFactor = 0.85;   // stronger damping = less drift
+        this.thrustPower = 18;
+        this.brakeFactor = 0.88;   // slightly less damping for higher top speed
         this.rotSpeed = 1.0;       // slower roll
         this.rotDamping = 0.88;
-        this.maxSpeed = 10;        // reduced from 15
+        this.maxSpeed = 14;
         this.mouseSensitivity = 0.003;
 
         // Mouse smoothing state
