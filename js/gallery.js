@@ -1004,20 +1004,42 @@ const SLIME_URLS = [
 ];
 
 
+// Max texture dimension — IPFS originals are downscaled to this on load
+const TEX_MAX = 256;
+
 export class GalleryManager {
     constructor() {
         this.paintings = [];
+        this._disposed = false;
+        // Shared geometry / materials (created once in placeArtwork)
+        this._frameGeo = null;
+        this._artGeo = null;
+        this._frameMat = null;
+        this._glowGeo = null;
+        this._glowMat = null;
     }
 
     placeArtwork(wallMeshes, THREE) {
+        this._disposed = false;
+
+        // Shared resources — one geometry/material for all paintings
+        this._frameGeo = new THREE.PlaneGeometry(1.6, 1.6);
+        this._artGeo = new THREE.PlaneGeometry(1.4, 1.4);
+        this._frameMat = new THREE.MeshStandardMaterial({
+            color: 0x1a1008, roughness: 0.8, metalness: 0.2, side: THREE.DoubleSide
+        });
+        // Emissive glow strip replaces PointLight — zero lighting cost
+        this._glowGeo = new THREE.PlaneGeometry(1.2, 0.15);
+        this._glowMat = new THREE.MeshBasicMaterial({
+            color: 0xfff5e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide
+        });
+
         const keys = Object.keys(wallMeshes);
-        // Shuffle
         for (let i = keys.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [keys[i], keys[j]] = [keys[j], keys[i]];
         }
 
-        // Pick random subset of SLIME URLs
         const urlPool = [...SLIME_URLS];
         for (let i = urlPool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -1026,47 +1048,36 @@ export class GalleryManager {
 
         const count = Math.min(Math.max(35, Math.floor(keys.length / 25)), keys.length, urlPool.length);
         const loader = new THREE.TextureLoader();
+        const downscaleCanvas = document.createElement('canvas');
+        const downscaleCtx = downscaleCanvas.getContext('2d');
 
         for (let i = 0; i < count; i++) {
             const key = keys[i];
             const wall = wallMeshes[key];
             const dir = key.split(',')[2];
 
-            // Painting group — child of wall so destruction auto-hides
             const group = new THREE.Group();
 
-            // Frame
-            const frameGeo = new THREE.PlaneGeometry(1.6, 1.6);
-            const frameMat = new THREE.MeshStandardMaterial({
-                color: 0x1a1008,
-                roughness: 0.8,
-                metalness: 0.2,
-                side: THREE.DoubleSide
-            });
-            const frame = new THREE.Mesh(frameGeo, frameMat);
-            group.add(frame);
+            // Frame — shared geometry + material
+            group.add(new THREE.Mesh(this._frameGeo, this._frameMat));
 
-            // Art plane — placeholder color, swapped on texture load
-            const artGeo = new THREE.PlaneGeometry(1.4, 1.4);
+            // Art plane — unique material per painting (needs its own texture)
             const artMat = new THREE.MeshStandardMaterial({
-                color: 0x1a1a2e,
-                roughness: 0.5,
-                metalness: 0.0,
+                color: 0x1a1a2e, roughness: 0.5, metalness: 0.0,
                 side: THREE.DoubleSide
             });
-            const art = new THREE.Mesh(artGeo, artMat);
-            art.position.z = 0.01; // Slightly in front of frame
+            const art = new THREE.Mesh(this._artGeo, artMat);
+            art.position.z = 0.01;
             group.add(art);
 
-            // Warm spotlight above painting
-            const light = new THREE.PointLight(0xfff5e0, 0.6, 3);
-            light.position.set(0, 1.2, 0.3);
-            group.add(light);
+            // Emissive glow strip above painting — replaces PointLight
+            const glow = new THREE.Mesh(this._glowGeo, this._glowMat);
+            glow.position.set(0, 0.95, 0.05);
+            group.add(glow);
 
             // Position offset based on wall direction
             if (dir === 'N') {
                 group.position.set(0, 0, 0.16);
-                // No rotation needed — faces +Z (inward)
             } else if (dir === 'S') {
                 group.position.set(0, 0, -0.16);
                 group.rotation.y = Math.PI;
@@ -1079,33 +1090,48 @@ export class GalleryManager {
             }
 
             wall.add(group);
-            this.paintings.push({ group, artMat, artGeo, frameGeo, frameMat, light });
+            this.paintings.push({ group, artMat });
 
-            // Async texture load
+            // Async texture load with downscale
             const url = urlPool[i];
-            loader.load(
-                url,
-                (texture) => {
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    artMat.map = texture;
-                    artMat.color.set(0xffffff);
-                    artMat.needsUpdate = true;
-                },
-                undefined,
-                () => { /* keep placeholder on error */ }
-            );
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                if (this._disposed) return;
+                // Downscale to TEX_MAX to save GPU memory
+                let w = img.width, h = img.height;
+                if (w > TEX_MAX || h > TEX_MAX) {
+                    const scale = TEX_MAX / Math.max(w, h);
+                    w = Math.round(w * scale);
+                    h = Math.round(h * scale);
+                }
+                downscaleCanvas.width = w;
+                downscaleCanvas.height = h;
+                downscaleCtx.drawImage(img, 0, 0, w, h);
+                const texture = new THREE.CanvasTexture(downscaleCanvas);
+                texture.colorSpace = THREE.SRGBColorSpace;
+                texture.needsUpdate = true;
+                artMat.map = texture;
+                artMat.color.set(0xffffff);
+                artMat.needsUpdate = true;
+            };
+            img.onerror = () => { /* keep placeholder */ };
+            img.src = url;
         }
     }
 
     cleanup() {
+        this._disposed = true;
         for (const p of this.paintings) {
             if (p.group.parent) p.group.parent.remove(p.group);
-            p.frameGeo.dispose();
-            p.frameMat.dispose();
-            p.artGeo.dispose();
             if (p.artMat.map) p.artMat.map.dispose();
             p.artMat.dispose();
         }
         this.paintings = [];
+        if (this._frameGeo) { this._frameGeo.dispose(); this._frameGeo = null; }
+        if (this._artGeo) { this._artGeo.dispose(); this._artGeo = null; }
+        if (this._frameMat) { this._frameMat.dispose(); this._frameMat = null; }
+        if (this._glowGeo) { this._glowGeo.dispose(); this._glowGeo = null; }
+        if (this._glowMat) { this._glowMat.dispose(); this._glowMat = null; }
     }
 }
