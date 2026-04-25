@@ -1024,7 +1024,7 @@ export class GalleryManager {
             [urlPool[i], urlPool[j]] = [urlPool[j], urlPool[i]];
         }
 
-        const count = Math.min(35, keys.length, urlPool.length);
+        const count = Math.min(Math.max(35, Math.floor(keys.length / 25)), keys.length, urlPool.length);
         const loader = new THREE.TextureLoader();
 
         for (let i = 0; i < count; i++) {
@@ -1040,7 +1040,8 @@ export class GalleryManager {
             const frameMat = new THREE.MeshStandardMaterial({
                 color: 0x1a1008,
                 roughness: 0.8,
-                metalness: 0.2
+                metalness: 0.2,
+                side: THREE.DoubleSide
             });
             const frame = new THREE.Mesh(frameGeo, frameMat);
             group.add(frame);
@@ -1050,7 +1051,8 @@ export class GalleryManager {
             const artMat = new THREE.MeshStandardMaterial({
                 color: 0x1a1a2e,
                 roughness: 0.5,
-                metalness: 0.0
+                metalness: 0.0,
+                side: THREE.DoubleSide
             });
             const art = new THREE.Mesh(artGeo, artMat);
             art.position.z = 0.01; // Slightly in front of frame
@@ -1070,10 +1072,10 @@ export class GalleryManager {
                 group.rotation.y = Math.PI;
             } else if (dir === 'W') {
                 group.position.set(0.16, 0, 0);
-                group.rotation.y = -Math.PI / 2;
+                group.rotation.y = Math.PI / 2;
             } else if (dir === 'E') {
                 group.position.set(-0.16, 0, 0);
-                group.rotation.y = Math.PI / 2;
+                group.rotation.y = -Math.PI / 2;
             }
 
             wall.add(group);
