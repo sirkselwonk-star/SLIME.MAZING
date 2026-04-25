@@ -23,7 +23,7 @@ export class ShipControls {
         this.mouseDY = 0;
         this.smoothDX = 0;         // smoothed mouse output
         this.smoothDY = 0;
-        this.mouseSmoothing = 0.4; // lerp factor (0=sluggish, 1=raw)
+        this.mouseSmoothing = 0.65; // lerp factor (0=sluggish, 1=raw)
         this.maxMouseDelta = 30;   // clamp per-frame pixel delta
         this.pointerLocked = false;
         this._ignoreNextMouse = false; // skip first delta after lock
@@ -81,13 +81,14 @@ export class ShipControls {
         const cam = this.camera;
 
         // --- Rotation from mouse (smoothed + clamped) ---
-        // Clamp raw accumulated delta to prevent spikes
-        const clampedDX = Math.max(-this.maxMouseDelta, Math.min(this.maxMouseDelta, this.mouseDX));
-        const clampedDY = Math.max(-this.maxMouseDelta, Math.min(this.maxMouseDelta, this.mouseDY));
+        // Scale clamp with frame time so continuous spinning isn't throttled at low fps
+        const maxDelta = this.maxMouseDelta * dt * 60;
+        const clampedDX = Math.max(-maxDelta, Math.min(maxDelta, this.mouseDX));
+        const clampedDY = Math.max(-maxDelta, Math.min(maxDelta, this.mouseDY));
         this.mouseDX = 0;
         this.mouseDY = 0;
 
-        // Lerp toward clamped target for smooth feel (dt-corrected)
+        // Lerp toward clamped target (dt-corrected, high responsiveness)
         const mouseLerp = 1 - Math.pow(1 - this.mouseSmoothing, dt * 60);
         this.smoothDX += (clampedDX - this.smoothDX) * mouseLerp;
         this.smoothDY += (clampedDY - this.smoothDY) * mouseLerp;
