@@ -1007,7 +1007,13 @@ const SLIME_URLS = [
 // Max texture dimension — IPFS originals are downscaled to this on load
 const TEX_MAX = 256;
 
-// Render a nameplate canvas with SLIME name text
+// Module-level caches — persist across level restarts, loaded once per session
+const artCache = new Map();   // url → THREE.CanvasTexture
+const plateCache = new Map(); // label → THREE.CanvasTexture
+
+// Shared geometry/material — created once on first use
+let sharedFrameGeo, sharedArtGeo, sharedPlateGeo, sharedFrameMat;
+
 function makeNameplateTexture(label) {
     const c = document.createElement('canvas');
     c.width = 256;
@@ -1023,26 +1029,26 @@ function makeNameplateTexture(label) {
     return c;
 }
 
+function ensureSharedResources(THREE) {
+    if (!sharedFrameGeo) {
+        sharedFrameGeo = new THREE.PlaneGeometry(1.6, 1.6);
+        sharedArtGeo = new THREE.PlaneGeometry(1.4, 1.4);
+        sharedPlateGeo = new THREE.PlaneGeometry(0.9, 0.14);
+        sharedFrameMat = new THREE.MeshStandardMaterial({
+            color: 0x1a1008, roughness: 0.8, metalness: 0.2, side: THREE.DoubleSide
+        });
+    }
+}
+
 export class GalleryManager {
     constructor() {
         this.paintings = [];
         this._disposed = false;
-        this._frameGeo = null;
-        this._artGeo = null;
-        this._frameMat = null;
-        this._plateGeo = null;
     }
 
     placeArtwork(wallMeshes, THREE) {
         this._disposed = false;
-
-        // Shared resources
-        this._frameGeo = new THREE.PlaneGeometry(1.6, 1.6);
-        this._artGeo = new THREE.PlaneGeometry(1.4, 1.4);
-        this._frameMat = new THREE.MeshStandardMaterial({
-            color: 0x1a1008, roughness: 0.8, metalness: 0.2, side: THREE.DoubleSide
-        });
-        this._plateGeo = new THREE.PlaneGeometry(0.9, 0.14);
+        ensureSharedResources(THREE);
 
         const keys = Object.keys(wallMeshes);
         for (let i = keys.length - 1; i > 0; i--) {
@@ -1066,28 +1072,31 @@ export class GalleryManager {
 
             const group = new THREE.Group();
 
-            // Frame — shared geometry + material
-            group.add(new THREE.Mesh(this._frameGeo, this._frameMat));
+            // Frame
+            group.add(new THREE.Mesh(sharedFrameGeo, sharedFrameMat));
 
-            // Art plane — unique material per painting
+            // Art plane — unique material per painting, texture from cache or async load
             const artMat = new THREE.MeshStandardMaterial({
                 color: 0x1a1a2e, roughness: 0.5, metalness: 0.0,
                 side: THREE.DoubleSide
             });
-            const art = new THREE.Mesh(this._artGeo, artMat);
+            const art = new THREE.Mesh(sharedArtGeo, artMat);
             art.position.z = 0.01;
             group.add(art);
 
-            // Nameplate with SLIME name
+            // Nameplate — cached per label
             const numMatch = url.match(/SLIME%23(\d+)\.png/);
             const label = numMatch ? `SLIME #${numMatch[1]}` : 'SLIME';
-            const plateCanvas = makeNameplateTexture(label);
-            const plateTex = new THREE.CanvasTexture(plateCanvas);
-            plateTex.colorSpace = THREE.SRGBColorSpace;
+            let plateTex = plateCache.get(label);
+            if (!plateTex) {
+                plateTex = new THREE.CanvasTexture(makeNameplateTexture(label));
+                plateTex.colorSpace = THREE.SRGBColorSpace;
+                plateCache.set(label, plateTex);
+            }
             const plateMat = new THREE.MeshBasicMaterial({
                 map: plateTex, side: THREE.DoubleSide
             });
-            const plate = new THREE.Mesh(this._plateGeo, plateMat);
+            const plate = new THREE.Mesh(sharedPlateGeo, plateMat);
             plate.position.set(0, -0.92, 0.05);
             group.add(plate);
 
@@ -1106,48 +1115,52 @@ export class GalleryManager {
             }
 
             wall.add(group);
-            this.paintings.push({ group, artMat, plateMat, plateTex });
+            this.paintings.push({ group, artMat, plateMat });
 
-            // Async texture load — own canvas per painting to avoid shared-canvas corruption
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                if (this._disposed) return;
-                let w = img.width, h = img.height;
-                if (w > TEX_MAX || h > TEX_MAX) {
-                    const scale = TEX_MAX / Math.max(w, h);
-                    w = Math.round(w * scale);
-                    h = Math.round(h * scale);
-                }
-                const c = document.createElement('canvas');
-                c.width = w;
-                c.height = h;
-                c.getContext('2d').drawImage(img, 0, 0, w, h);
-                const texture = new THREE.CanvasTexture(c);
-                texture.colorSpace = THREE.SRGBColorSpace;
-                texture.needsUpdate = true;
-                artMat.map = texture;
+            // Check art texture cache — skip network if already loaded
+            const cached = artCache.get(url);
+            if (cached) {
+                artMat.map = cached;
                 artMat.color.set(0xffffff);
                 artMat.needsUpdate = true;
-            };
-            img.onerror = () => { /* keep placeholder */ };
-            img.src = url;
+            } else {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    if (this._disposed) return;
+                    let w = img.width, h = img.height;
+                    if (w > TEX_MAX || h > TEX_MAX) {
+                        const scale = TEX_MAX / Math.max(w, h);
+                        w = Math.round(w * scale);
+                        h = Math.round(h * scale);
+                    }
+                    const c = document.createElement('canvas');
+                    c.width = w;
+                    c.height = h;
+                    c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    const texture = new THREE.CanvasTexture(c);
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.needsUpdate = true;
+                    artCache.set(url, texture);
+                    artMat.map = texture;
+                    artMat.color.set(0xffffff);
+                    artMat.needsUpdate = true;
+                };
+                img.onerror = () => { /* keep placeholder */ };
+                img.src = url;
+            }
         }
     }
 
     cleanup() {
         this._disposed = true;
+        // Remove painting groups from walls, dispose per-painting materials
+        // but keep cached textures alive for next level
         for (const p of this.paintings) {
             if (p.group.parent) p.group.parent.remove(p.group);
-            if (p.artMat.map) p.artMat.map.dispose();
             p.artMat.dispose();
-            p.plateTex.dispose();
             p.plateMat.dispose();
         }
         this.paintings = [];
-        if (this._frameGeo) { this._frameGeo.dispose(); this._frameGeo = null; }
-        if (this._artGeo) { this._artGeo.dispose(); this._artGeo = null; }
-        if (this._frameMat) { this._frameMat.dispose(); this._frameMat = null; }
-        if (this._plateGeo) { this._plateGeo.dispose(); this._plateGeo = null; }
     }
 }
