@@ -729,35 +729,38 @@ export class SoundtrackManager {
         subGain.gain.setValueAtTime(subVol, time);
         subGain.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
 
-        // Pre-wah overdrive for grit
+        // Pre-wah overdrive — crank it for rich harmonics the filter can chew on
         const drive = ctx.createWaveShaper();
-        drive.curve = this._makeDistortionCurve(12);
+        drive.curve = this._makeDistortionCurve(accented ? 30 : 20);
 
-        // WAH FILTER: resonant bandpass that sweeps open then closed
+        // WAH FILTER: high-Q bandpass with big sweep for that vocal quack
         const wah = ctx.createBiquadFilter();
         wah.type = 'bandpass';
-        wah.Q.value = accented ? 8 : 5;
-        const wahLow = freq * 1.5;
-        const wahPeak = accented ? freq * 14 : freq * 8;
+        wah.Q.value = accented ? 16 : 12;
+        const wahLow = freq * 0.8;
+        const wahPeak = accented ? freq * 24 : freq * 16;
+        // Double sweep: open → close → re-open for "wah-wah" shape
         wah.frequency.setValueAtTime(wahLow, time);
-        wah.frequency.exponentialRampToValueAtTime(wahPeak, time + 0.04);
-        wah.frequency.exponentialRampToValueAtTime(wahLow, time + 0.2);
+        wah.frequency.exponentialRampToValueAtTime(wahPeak, time + 0.06);
+        wah.frequency.exponentialRampToValueAtTime(freq * 2, time + 0.14);
+        wah.frequency.exponentialRampToValueAtTime(wahPeak * 0.6, time + 0.22);
+        wah.frequency.exponentialRampToValueAtTime(wahLow, time + 0.35);
 
-        // LFO wobble for extra wah movement on sustained notes
+        // LFO wobble — deep and obvious
         const wahLFO = ctx.createOscillator();
         wahLFO.type = 'sine';
-        wahLFO.frequency.value = accented ? 4.5 : 2.5;
+        wahLFO.frequency.value = accented ? 5.5 : 3.5;
         const wahLFODepth = ctx.createGain();
-        wahLFODepth.gain.value = freq * 2;
+        wahLFODepth.gain.value = freq * 6;
         wahLFO.connect(wahLFODepth);
         wahLFODepth.connect(wah.frequency);
 
-        // Output gain
-        const vol = accented ? 0.26 : 0.18;
+        // Output gain — louder to cut through
+        const vol = accented ? 0.34 : 0.24;
         const gain = ctx.createGain();
         gain.gain.setValueAtTime(vol, time);
-        gain.gain.setTargetAtTime(vol * 0.6, time + 0.02, 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
+        gain.gain.setTargetAtTime(vol * 0.6, time + 0.02, 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.38);
 
         // Routing: osc → drive → wah → gain → soloBus
         osc.connect(drive);
@@ -768,11 +771,11 @@ export class SoundtrackManager {
         gain.connect(this.soloBus);
 
         wahLFO.start(time);
-        wahLFO.stop(time + 0.3);
+        wahLFO.stop(time + 0.38);
         osc.start(time);
-        osc.stop(time + 0.3);
+        osc.stop(time + 0.38);
         sub.start(time);
-        sub.stop(time + 0.3);
+        sub.stop(time + 0.38);
     }
 
     // ========== Continuous layers ==========
