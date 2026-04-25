@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SLIME MINER</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #050510;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            color: #4ade80;
+            cursor: none;
+        }
+
+        #game-container {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+        }
+
+        #game-container canvas {
+            display: block;
+        }
+
+        #hud-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Loading screen */
+        #loading {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background: #050510;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        #loading .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #1a1a2e;
+            border-top: 3px solid #4ade80;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        #loading p {
+            margin-top: 16px;
+            color: #4ade80;
+            font-size: 14px;
+            letter-spacing: 2px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Menu screen */
+        #menu-screen {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 50;
+            background: rgba(5, 5, 16, 0.85);
+            cursor: pointer;
+        }
+
+        #menu-screen h1 {
+            font-size: clamp(36px, 8vw, 80px);
+            font-weight: 900;
+            letter-spacing: 8px;
+            color: #4ade80;
+            text-shadow:
+                0 0 20px rgba(74, 222, 128, 0.5),
+                0 0 60px rgba(74, 222, 128, 0.2);
+            margin-bottom: 8px;
+        }
+
+        #menu-screen .subtitle {
+            font-size: clamp(12px, 2vw, 18px);
+            color: #22d3ee;
+            letter-spacing: 4px;
+            margin-bottom: 40px;
+        }
+
+        #menu-screen .prompt {
+            font-size: 14px;
+            color: #888;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        #menu-screen .controls-info {
+            margin-top: 30px;
+            font-size: 11px;
+            color: #555;
+            line-height: 1.8;
+            text-align: center;
+        }
+
+        #menu-screen .controls-info span {
+            color: #4ade80;
+            border: 1px solid #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(74, 222, 128, 0.1);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        /* Level complete */
+        #level-complete {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 50;
+            background: rgba(5, 5, 16, 0.9);
+            cursor: pointer;
+        }
+
+        #level-complete h2 {
+            font-size: 48px;
+            color: #f472b6;
+            text-shadow: 0 0 30px rgba(244, 114, 182, 0.5);
+            letter-spacing: 6px;
+            margin-bottom: 16px;
+        }
+
+        #level-complete .score {
+            font-size: 20px;
+            color: #fb923c;
+            margin-bottom: 30px;
+        }
+
+        #level-complete .prompt {
+            font-size: 14px;
+            color: #888;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* Exit lock indicator */
+        #exit-status {
+            position: fixed;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            letter-spacing: 2px;
+            z-index: 11;
+            pointer-events: none;
+            transition: color 0.3s;
+        }
+
+        #exit-status.locked { color: #f87171; }
+        #exit-status.unlocked { color: #4ade80; }
+
+        /* Slime SVG decoration in menu */
+        .slime-deco {
+            position: absolute;
+            opacity: 0.06;
+            pointer-events: none;
+        }
+        .slime-deco.left { left: -5%; top: 10%; width: 40%; }
+        .slime-deco.right { right: -5%; top: 10%; width: 40%; transform: scaleX(-1); }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p>GENERATING MINE SHAFTS...</p>
+    </div>
+
+    <div id="game-container"></div>
+    <canvas id="hud-canvas"></canvas>
+
+    <div id="menu-screen">
+        <svg class="slime-deco left" viewBox="0 0 997 1471" fill="#4ade80">
+            <path d="M448.3-.2h3.1c24.8-.3 49 .4 73.6 4.2l3.5.6a398 398 0 0 1 205.7 98.9l6.7 5.8c45 39.2 65.5 98.7 70 156.7q.6 14.7.4 29.4v3.6q.2 26.9-2.2 53.5l-.3 2.5q-1.5 15.6-3.5 31l-.4 3.3q-4.1 33.8-9 67.2c-5.2 36.1-10.3 72.2-13.9 108.5l-.2 2.4q-1.6 15.7-2.8 31.6l-.2 2a773 773 0 0 0 .4 128.1q4.5 51 16.8 100.9l.8 3.3A630 630 0 0 0 873 1011l1.7 2.7a690 690 0 0 0 32.1 47.7q4.3 6 9.8 10.8a356 356 0 0 1 23.2 22.4l13.7 13.7 2.5 2.4a223 223 0 0 1 18.8 21.5c10.2 12 21 26 22.5 42.1-.5 5.7-2.6 9.9-6.5 14-17.2 10.4-42 6.4-60.6 2-37.7-9.4-76.4-29.7-99-62.4-22.7-38.4-31.5-89.3-43.4-132l-.8-2.9-12.4-45a284 284 0 0 0-7.7-24.7l-.7-2c-4.5-11.5-10.3-21.2-21.7-26.7a50 50 0 0 0-37.5 3.8 43 43 0 0 0-23 24.4c-15.7 55 11.7 127.3 23.6 181.4l21 95.1c7 31.6 14 63 22.5 94.2q3 11.5 5.6 23.2l.6 2.3c20.3 88.8 20.3 88.8 5.7 113a21 21 0 0 1-11.7 9.6c-16.4 3.1-32.2-5.2-45.4-14A205 205 0 0 1 680 1406l-2-2a230 230 0 0 1-24-26l-1.6-2a259 259 0 0 1-22.8-34.5 221 221 0 0 1-29.8-108.2v-2.2q0-13.5 1.2-26.8 1.4-13.2 1.3-26.5v-3.6c0-16.8-5.3-30.8-17-43l-2.3-2.2-1.8-1.9c-13.1-12.9-34-17.7-51.3-22.3A90 90 0 0 1 491 1086l-2-1.8c-14-12.7-19.7-30.8-21-49.2q-.3-10.7 1-21.2l.4-3q1.4-10.4 3.6-20.5l.5-2.6 2.8-12.8c3.6-16 3.6-16 1.7-32-2.8-4-5.3-5.7-10-6.9-21.6-2.5-43.2 9.3-59.6 22.3-31.9 26.9-50.2 65-54.3 106.2l-.7 7.4a452 452 0 0 0-2.6 46v2.4a710 710 0 0 0 15.8 136.7q7.6 39.6 16.5 79l.7 3 6.7 30c16.9 74.8 16.9 74.8 8 89.8A31 31 0 0 1 379 1471a89 89 0 0 1-36-4l-2-.6a82 82 0 0 1-27-14.4l-2.8-2.2A162 162 0 0 1 248 1338q-1.2-10.8-1.2-21.7v-3l-.1-15.7c-.2-26.2 4.8-51.4 9.6-77.1l5.4-29 .5-3a3670 3670 0 0 0 11.8-67.2c19.4-102.8 19.4-102.8-9-200.3-4.7-6-9.2-11.6-16.7-13.8-11.3-.7-20.7 5.4-28.9 12.6L212 927l-1.4 1.4c-30.4 31-40.2 67.1-45.5 109-5.1 39.9-15.3 73.8-43.7 103.2l-3.6 3.8c-21 22.3-57.5 44.3-88.8 46h-5.3l-2.5.1a25 25 0 0 1-18.1-7.1A21 21 0 0 1 .6 1167c5.7-20.7 20.2-39 31.8-56.7a852 852 0 0 0 50-86c39.2-78.2 54.3-166.4 28.7-522a1641 1641 0 0 1-8.3-67.2 722 722 0 0 1-3.4-48.6v-3.9Q98.6 370 99 357v-2.8c.9-38.1 3.4-78.4 14-115.2l.6-2a215 215 0 0 1 12.4-31l1.1-2.4a281 281 0 0 1 39.2-61.5q5.9-7.5 12.3-14.5l5.7-6.4q5.6-6.4 11.6-12.3l2-2A253 253 0 0 1 212 94l3-2.6C278.2 36.8 364 .4 448.3-.2"/>
+        </svg>
+        <svg class="slime-deco right" viewBox="0 0 997 1471" fill="#4ade80">
+            <path d="M448.3-.2h3.1c24.8-.3 49 .4 73.6 4.2l3.5.6a398 398 0 0 1 205.7 98.9l6.7 5.8c45 39.2 65.5 98.7 70 156.7q.6 14.7.4 29.4v3.6q.2 26.9-2.2 53.5l-.3 2.5q-1.5 15.6-3.5 31l-.4 3.3q-4.1 33.8-9 67.2c-5.2 36.1-10.3 72.2-13.9 108.5l-.2 2.4q-1.6 15.7-2.8 31.6l-.2 2a773 773 0 0 0 .4 128.1q4.5 51 16.8 100.9l.8 3.3A630 630 0 0 0 873 1011l1.7 2.7a690 690 0 0 0 32.1 47.7q4.3 6 9.8 10.8a356 356 0 0 1 23.2 22.4l13.7 13.7 2.5 2.4a223 223 0 0 1 18.8 21.5c10.2 12 21 26 22.5 42.1-.5 5.7-2.6 9.9-6.5 14-17.2 10.4-42 6.4-60.6 2-37.7-9.4-76.4-29.7-99-62.4-22.7-38.4-31.5-89.3-43.4-132l-.8-2.9-12.4-45a284 284 0 0 0-7.7-24.7l-.7-2c-4.5-11.5-10.3-21.2-21.7-26.7a50 50 0 0 0-37.5 3.8 43 43 0 0 0-23 24.4c-15.7 55 11.7 127.3 23.6 181.4l21 95.1c7 31.6 14 63 22.5 94.2q3 11.5 5.6 23.2l.6 2.3c20.3 88.8 20.3 88.8 5.7 113a21 21 0 0 1-11.7 9.6c-16.4 3.1-32.2-5.2-45.4-14A205 205 0 0 1 680 1406l-2-2a230 230 0 0 1-24-26l-1.6-2a259 259 0 0 1-22.8-34.5 221 221 0 0 1-29.8-108.2v-2.2q0-13.5 1.2-26.8 1.4-13.2 1.3-26.5v-3.6c0-16.8-5.3-30.8-17-43l-2.3-2.2-1.8-1.9c-13.1-12.9-34-17.7-51.3-22.3A90 90 0 0 1 491 1086l-2-1.8c-14-12.7-19.7-30.8-21-49.2q-.3-10.7 1-21.2l.4-3q1.4-10.4 3.6-20.5l.5-2.6 2.8-12.8c3.6-16 3.6-16 1.7-32-2.8-4-5.3-5.7-10-6.9-21.6-2.5-43.2 9.3-59.6 22.3-31.9 26.9-50.2 65-54.3 106.2l-.7 7.4a452 452 0 0 0-2.6 46v2.4a710 710 0 0 0 15.8 136.7q7.6 39.6 16.5 79l.7 3 6.7 30c16.9 74.8 16.9 74.8 8 89.8A31 31 0 0 1 379 1471a89 89 0 0 1-36-4l-2-.6a82 82 0 0 1-27-14.4l-2.8-2.2A162 162 0 0 1 248 1338q-1.2-10.8-1.2-21.7v-3l-.1-15.7c-.2-26.2 4.8-51.4 9.6-77.1l5.4-29 .5-3a3670 3670 0 0 0 11.8-67.2c19.4-102.8 19.4-102.8-9-200.3-4.7-6-9.2-11.6-16.7-13.8-11.3-.7-20.7 5.4-28.9 12.6L212 927l-1.4 1.4c-30.4 31-40.2 67.1-45.5 109-5.1 39.9-15.3 73.8-43.7 103.2l-3.6 3.8c-21 22.3-57.5 44.3-88.8 46h-5.3l-2.5.1a25 25 0 0 1-18.1-7.1A21 21 0 0 1 .6 1167c5.7-20.7 20.2-39 31.8-56.7a852 852 0 0 0 50-86c39.2-78.2 54.3-166.4 28.7-522a1641 1641 0 0 1-8.3-67.2 722 722 0 0 1-3.4-48.6v-3.9Q98.6 370 99 357v-2.8c.9-38.1 3.4-78.4 14-115.2l.6-2a215 215 0 0 1 12.4-31l1.1-2.4a281 281 0 0 1 39.2-61.5q5.9-7.5 12.3-14.5l5.7-6.4q5.6-6.4 11.6-12.3l2-2A253 253 0 0 1 212 94l3-2.6C278.2 36.8 364 .4 448.3-.2"/>
+        </svg>
+        <h1>SLIME MINER</h1>
+        <div class="subtitle">DESCENT INTO THE SLIME</div>
+        <div class="prompt">[ CLICK TO START ]</div>
+        <div class="controls-info">
+            <span>W</span> <span>A</span> <span>S</span> <span>D</span> Move &nbsp;&nbsp;
+            <span>Mouse</span> Look &nbsp;&nbsp;
+            <span>Q</span> <span>E</span> Roll<br>
+            <span>Space</span> Up &nbsp;&nbsp;
+            <span>Shift</span> Down &nbsp;&nbsp;
+            Collect 50% ore to unlock exit
+        </div>
+    </div>
+
+    <div id="level-complete">
+        <h2>LEVEL COMPLETE</h2>
+        <div class="score">ORE MINED: <span id="final-score">0/0</span></div>
+        <div class="prompt">[ CLICK TO PLAY AGAIN ]</div>
+    </div>
+
+    <div id="exit-status" class="locked">EXIT LOCKED</div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js"
+        }
+    }
+    </script>
+    <script type="module" src="js/main.js"></script>
+    <script>
+        // Exit status indicator update
+        setInterval(() => {
+            const el = document.getElementById('exit-status');
+            if (!el) return;
+            // Check if game module has exposed state
+            if (window._gameState) {
+                if (window._gameState.state !== 'PLAYING') {
+                    el.style.display = 'none';
+                } else {
+                    el.style.display = 'block';
+                    if (window._gameState.exitUnlocked) {
+                        el.className = 'unlocked';
+                        el.textContent = 'EXIT UNLOCKED';
+                    } else {
+                        el.className = 'locked';
+                        const needed = Math.ceil(window._gameState.oreTotal * 0.5);
+                        el.textContent = `EXIT LOCKED — NEED ${needed - (window._gameState.oreCollected || 0)} MORE ORE`;
+                    }
+                }
+            }
+        }, 200);
+    </script>
+</body>
+</html>
