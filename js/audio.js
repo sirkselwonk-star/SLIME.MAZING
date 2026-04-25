@@ -1,5 +1,5 @@
 // audio.js — Procedural industrial soundtrack (Web Audio API)
-// 64-bar arrangement with swing, ghost notes, acid solo, and scream solo
+// 72-bar arrangement with swing, slides, accents, delay, acid + scream solos
 
 export class SoundtrackManager {
     constructor() {
@@ -22,6 +22,8 @@ export class SoundtrackManager {
         this.barCount = 0;
         this.arrIndex = 0;
         this.barInSection = 0;
+        this._prevAcidNote = 0;
+        this._prevScreamNote = 0;
 
         // ===== Pattern bank (velocity 0.0–1.0 per step) =====
         //                        1  .  .  .   2  .  .  .   3  .  .  .   4  .  .  .
@@ -103,55 +105,104 @@ export class SoundtrackManager {
         ];
 
         // ===== Solo phrases =====
-        // Each solo = array of bars, each bar = 16 steps, value = freq (0 = rest)
+        // Each bar = 16 steps. Positive freq = normal note, negative = accented (wider filter/louder)
+        // Consecutive non-zero notes trigger portamento slides
         // A minor pentatonic: A=110/220/440, C=130.8/261.6, D=146.8/293.7,
         //                     E=164.8/329.6, G=196/392
 
         this.soloBank = {
-            // --- Acid lead (lower register, squelchy) ---
+            // ——— ACID LEAD (sawtooth + resonant filter) ———
+
+            // acidA: "Opening Statement" — deliberate, bluesy, establishing the key
             acidA: [
-                //  1  .  .  .   2  .  .  .   3  .  .  .   4  .  .  .
-                [110,  0,  0,  0, 130.8,0,164.8,0, 146.8,0,  0,  0, 130.8,0,110,  0],
-                [130.8,0,146.8,0, 164.8,0,196,  0, 220,  0,  0,  0, 196,  0,164.8,0],
-                [220,  0,  0,196, 164.8,0,  0,  0, 130.8,0,146.8,0, 164.8,0,130.8,0],
-                [110,  0,  0,  0,   0,  0,130.8,0, 110,  0,  0,  0,   0,  0,  0,  0],
+                [110,  0,  0,  0, 130.8,0,  0,  0, 146.8,0,130.8,0, 110,  0,  0,  0],
+                [130.8,0,146.8,0, 164.8,0,  0,  0, 146.8,0,130.8,0, 110,  0,  0,  0],
+                [164.8,0,196,  0,-220,  0,  0,  0, 196,  0,164.8,0, 146.8,0,130.8,0],
+                [110,  0,  0,  0, 130.8,0,110,  0,   0,  0,  0,  0,   0,  0,  0,  0],
             ],
-            // --- Acid lead (higher register, peak intensity) ---
+            // acidB: "Climbing" — ascending runs, building energy
             acidB: [
-                [220,  0,  0,  0, 261.6,0,329.6,0, 293.7,0,  0,  0, 261.6,0,220,  0],
-                [261.6,0,293.7,0, 329.6,0,392,  0, 440,  0,  0,  0, 392,  0,329.6,0],
-                [440,  0,  0,392, 329.6,0,293.7,0, 261.6,0,  0,  0, 220,  0,261.6,0],
-                [329.6,0,293.7,0, 261.6,0,220,  0, 196,  0,  0,  0,   0,  0,  0,  0],
+                [110,  0,130.8,0, 146.8,0,164.8,0,-196,  0,  0,  0, 164.8,0,196,  0],
+                [-220, 0,  0,  0, 196,  0,220,  0, 261.6,0,  0,  0, 220,  0,196,  0],
+                [220,  0,261.6,0,-293.7,0,261.6,0, 220,  0,196,  0, 220,  0,261.6,0],
+                [-293.7,0, 0,  0, 261.6,0,220,  0, 196,  0,  0,  0,   0,  0,  0,  0],
+            ],
+            // acidC: "Fast Run" — 16th-note flurries showcasing the filter squelch
+            acidC: [
+                [110,130.8,146.8,164.8, 196,220,196,164.8, 146.8,130.8,110,130.8, 146.8,164.8,-196,0],
+                [220,196,164.8,146.8, 130.8,146.8,164.8,196, -220,0,196,164.8, 146.8,130.8,110,0],
+                [164.8,0,-220,0, 196,164.8,196,-220, 261.6,0,-293.7,0, 261.6,220,196,164.8],
+                [-220,196,164.8,146.8, 130.8,110,130.8,146.8, -164.8,0,  0,  0,   0,  0,  0,  0],
+            ],
+            // acidD: "Peak" — high register, wide intervals, maximum acid
+            acidD: [
+                [-220,0,  0,  0,-329.6,0,  0,  0,-220,  0,261.6,0,-392,  0,  0,  0],
+                [329.6,0,-440,0, 329.6,0,261.6,0,-392,  0,329.6,0,-440,  0,392,  0],
+                [-329.6,0,261.6,0,-293.7,0,261.6,0,-220,0,196,  0, 164.8,0,146.8,0],
+                [-220,0,261.6,0,-329.6,0,  0,  0,-220,  0,  0,  0,   0,  0,  0,  0],
+            ],
+            // acidE: "Cooldown" — descending, sparse, resolving to root
+            acidE: [
+                [220,  0,  0,  0, 196,  0,  0,  0,   0,  0,  0,  0, 164.8,0,  0,  0],
+                [146.8,0,  0,  0, 130.8,0,  0,  0,   0,  0,  0,  0, 110,  0,  0,  0],
+                [130.8,0,  0,  0, 110,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
+                [110,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
             ],
 
-            // --- Scream lead (mid-range, aggressive with repeated attacks) ---
+            // ——— SCREAM LEAD (distorted square + vibrato) ———
+
+            // screamA: "Staccato Attacks" — punchy rhythmic bursts
             screamA: [
-                [220,  0,  0,  0,   0,  0,220,  0, 261.6,0,  0,  0, 220,  0,196,  0],
-                [164.8,0,196,  0, 220,  0,261.6,0, 293.7,0,  0,  0, 261.6,0,220,  0],
-                [329.6,0,  0,  0, 293.7,0,261.6,0, 220,  0,196,  0, 164.8,0,  0,  0],
-                [110,  0,  0,110,   0,  0,110,  0,   0,  0,  0,  0, 220,  0,  0,  0],
+                [-220,0,  0,  0,   0,  0,-220,0,-261.6,0,  0,  0, 220,  0,-196,0],
+                [  0, 0,-293.7,0,  0,  0,  0,  0,-261.6,0,  0,  0,   0,  0,-220,0],
+                [-329.6,0,0,  0,-293.7,0,-261.6,0,  0,  0,  0,  0,-220,  0,196,  0],
+                [-261.6,0,0,  0,-220,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
             ],
-            // --- Scream lead (higher, wilder, peak aggression) ---
+            // screamB: "Sustained Wail" — long notes with space, vibrato fills gaps
             screamB: [
-                [329.6,0,293.7,0, 329.6,0,  0,  0, 440,  0,329.6,0, 293.7,0,261.6,0],
-                [329.6,0,  0,  0, 440,  0,329.6,0, 293.7,0,  0,  0, 261.6,0,293.7,0],
-                [440,  0,329.6,0, 440,  0,  0,  0, 329.6,0,293.7,0, 261.6,0,  0,  0],
-                [220,  0,220,  0, 220,  0,  0,  0, 329.6,0,  0,  0,   0,  0,  0,  0],
+                [-329.6,0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
+                [  0,  0,  0,  0,   0,  0,  0,  0,-293.7,0,  0,  0,   0,  0,  0,  0],
+                [  0,  0,  0,  0,-261.6,0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
+                [-329.6,0,  0,  0,   0,  0,  0,  0,-440,  0,  0,  0,   0,  0,  0,  0],
+            ],
+            // screamC: "Rapid Fire" — machine-gun repeated notes climbing up
+            screamC: [
+                [220,0,220,0, 261.6,0,261.6,0, 293.7,0,293.7,0,-329.6,0,  0,  0],
+                [261.6,0,261.6,0, 293.7,0,293.7,0,-329.6,0,329.6,0,-440,0,  0,  0],
+                [329.6,0,293.7,0, 261.6,0,293.7,0, 329.6,0,-440,0, 392,0,329.6,0],
+                [-440,0,-392,0,-329.6,0,-261.6,0,-220,  0,  0,  0,   0,  0,  0,  0],
+            ],
+            // screamD: "Chaos" — wide unpredictable leaps, peak aggression
+            screamD: [
+                [-440,0,  0,  0, 220,  0,-392,0,   0,  0,-261.6,0,329.6,0,  0,  0],
+                [-220,0,-440,0,   0,  0,261.6,0,-392,  0,  0,  0,-329.6,0,220,  0],
+                [440,0,-261.6,0,-392,0,329.6,0,-220,  0,-440,0, 293.7,0,-261.6,0],
+                [-329.6,-293.7,-261.6,-220, -261.6,-293.7,-329.6,-392, -440,0,0,0, 0,0,0,0],
+            ],
+            // screamE: "Echo Fade" — sparse dying notes, delay fills the space
+            screamE: [
+                [261.6,0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
+                [  0,  0,  0,  0,   0,  0,  0,  0, 220,  0,  0,  0,   0,  0,  0,  0],
+                [  0,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0, 196,  0,  0,  0],
+                [  0,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0,   0,  0,  0,  0],
             ],
         };
 
-        // ===== 64-bar arrangement (~2 minutes) =====
-        // solo: key into soloBank, type: which instrument method
+        // ===== 72-bar arrangement (~2:13) =====
+        // solo: key into soloBank, soloType: instrument selector
+        // Negative notes in phrases = accented, consecutive notes = portamento slide
         this.arrangement = [
             // --- Intro & build (8 bars) ---
             { pat: 0, bars: 2, bass: 0 },
             { pat: 1, bars: 2, bass: 1 },
             { pat: 2, bars: 4, bass: 1 },
 
-            // --- Acid solo section (12 bars) ---
-            { pat: 8, bars: 4, bass: 2, solo: 'acidA', soloType: 'acid' },
-            { pat: 3, bars: 4, bass: 2, solo: 'acidA', soloType: 'acid' },
-            { pat: 6, bars: 4, bass: 4, solo: 'acidB', soloType: 'acid' },
+            // --- Acid solo (16 bars): opening → climbing → fast runs → peak ---
+            { pat: 8, bars: 4, bass: 0, solo: 'acidA', soloType: 'acid' },
+            { pat: 3, bars: 4, bass: 2, solo: 'acidB', soloType: 'acid' },
+            { pat: 6, bars: 4, bass: 4, solo: 'acidC', soloType: 'acid' },
+            { pat: 6, bars: 3, bass: 7, solo: 'acidD', soloType: 'acid' },
+            { pat: 7, bars: 1, bass: 5 },
 
             // --- Groove, let it breathe (8 bars) ---
             { pat: 2, bars: 4, bass: 1 },
@@ -162,17 +213,18 @@ export class SoundtrackManager {
             { pat: 4, bars: 4, bass: 3 },
             { pat: 5, bars: 4, bass: 7 },
 
-            // --- Scream solo section (12 bars) ---
+            // --- Scream solo (16 bars): attacks → wail → rapid → chaos ---
             { pat: 6, bars: 4, bass: 4, solo: 'screamA', soloType: 'scream' },
-            { pat: 8, bars: 4, bass: 6, solo: 'screamA', soloType: 'scream' },
-            { pat: 6, bars: 3, bass: 4, solo: 'screamB', soloType: 'scream' },
+            { pat: 8, bars: 4, bass: 6, solo: 'screamB', soloType: 'scream' },
+            { pat: 6, bars: 4, bass: 7, solo: 'screamC', soloType: 'scream' },
+            { pat: 6, bars: 3, bass: 2, solo: 'screamD', soloType: 'scream' },
             { pat: 7, bars: 1, bass: 5 },
 
             // --- Climax & resolution (16 bars) ---
             { pat: 2, bars: 4, bass: 1 },
-            { pat: 3, bars: 4, bass: 2 },
             { pat: 6, bars: 4, bass: 4 },
-            { pat: 2, bars: 3, bass: 1 },
+            { pat: 3, bars: 4, bass: 2, solo: 'acidE', soloType: 'acid' },
+            { pat: 0, bars: 3, bass: 0, solo: 'screamE', soloType: 'scream' },
             { pat: 7, bars: 1, bass: 5 },
         ];
     }
@@ -215,6 +267,8 @@ export class SoundtrackManager {
         this._bassOsc = null;
         this._bassGain = null;
         this._bassFilter = null;
+        this._prevAcidNote = 0;
+        this._prevScreamNote = 0;
     }
 
     toggleMute() {
@@ -250,6 +304,28 @@ export class SoundtrackManager {
         this.distortion.connect(this.compressor);
         this.compressor.connect(this.masterGain);
         this.masterGain.connect(ctx.destination);
+
+        // Solo bus with dotted-8th delay for depth
+        this.soloBus = ctx.createGain();
+        this.soloBus.gain.value = 1.0;
+
+        const soloDelay = ctx.createDelay(1.0);
+        soloDelay.delayTime.value = (60 / this.bpm) * 0.75; // dotted 8th
+        const delayFB = ctx.createGain();
+        delayFB.gain.value = 0.28;
+        const delayLP = ctx.createBiquadFilter();
+        delayLP.type = 'lowpass';
+        delayLP.frequency.value = 1800; // darken repeats
+        const delayWet = ctx.createGain();
+        delayWet.gain.value = 0.22;
+
+        this.soloBus.connect(this.distortion);          // dry path
+        this.soloBus.connect(soloDelay);                 // into delay
+        soloDelay.connect(delayLP);
+        delayLP.connect(delayFB);
+        delayFB.connect(soloDelay);                      // feedback loop
+        delayLP.connect(delayWet);
+        delayWet.connect(this.compressor);               // wet → master
     }
 
     _makeDistortionCurve(amount) {
@@ -315,18 +391,29 @@ export class SoundtrackManager {
         // Bass
         this._updateBass(step, time, section.bass);
 
-        // Solo
+        // Solo (negative values = accented, consecutive notes = slide)
         if (section.solo) {
             const phrase = this.soloBank[section.solo];
             const bar = this.barInSection % phrase.length;
-            const note = phrase[bar][step];
-            if (note > 0) {
+            const rawNote = phrase[bar][step];
+            const accented = rawNote < 0;
+            const freq = Math.abs(rawNote);
+
+            if (freq > 0) {
                 if (section.soloType === 'acid') {
-                    this._playAcidNote(time, note);
+                    this._playAcidNote(time, freq, this._prevAcidNote, accented);
+                    this._prevAcidNote = freq;
                 } else if (section.soloType === 'scream') {
-                    this._playScreamNote(time, note);
+                    this._playScreamNote(time, freq, this._prevScreamNote, accented);
+                    this._prevScreamNote = freq;
                 }
+            } else {
+                if (section.soloType === 'acid') this._prevAcidNote = 0;
+                else this._prevScreamNote = 0;
             }
+        } else {
+            this._prevAcidNote = 0;
+            this._prevScreamNote = 0;
         }
     }
 
@@ -465,65 +552,107 @@ export class SoundtrackManager {
 
     // ========== Solo instruments ==========
 
-    _playAcidNote(time, freq) {
-        // TB-303 style: sawtooth → resonant lowpass with per-note filter sweep
+    _playAcidNote(time, freq, prevFreq, accented) {
+        // TB-303 style: sawtooth → resonant lowpass
+        // Slides when consecutive notes, accents widen the filter sweep
         const ctx = this.ctx;
+        const sliding = prevFreq > 0;
 
         const osc = ctx.createOscillator();
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, time);
 
-        // High resonance filter = the classic acid squelch
+        if (sliding) {
+            // Portamento glide from previous pitch
+            osc.frequency.setValueAtTime(prevFreq, time);
+            osc.frequency.exponentialRampToValueAtTime(freq, time + 0.06);
+        } else {
+            osc.frequency.setValueAtTime(freq, time);
+        }
+
+        // Resonant filter — accents get wider sweep + higher Q
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.Q.value = 14;
-        filter.frequency.setValueAtTime(freq * 10, time);
-        filter.frequency.exponentialRampToValueAtTime(freq * 1.2, time + 0.14);
+        filter.Q.value = accented ? 18 : 14;
+        const filterPeak = accented ? freq * 16 : (sliding ? freq * 4 : freq * 10);
+        filter.frequency.setValueAtTime(filterPeak, time);
+        filter.frequency.exponentialRampToValueAtTime(freq * 1.2, time + (accented ? 0.18 : 0.14));
 
+        // Gain — accents louder, slides have softer attack
+        const vol = accented ? 0.22 : 0.14;
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.16, time);
-        gain.gain.setTargetAtTime(0.07, time + 0.01, 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
+        if (sliding) {
+            gain.gain.setValueAtTime(vol * 0.8, time);
+            gain.gain.setTargetAtTime(vol * 0.5, time + 0.01, 0.06);
+        } else {
+            gain.gain.setValueAtTime(vol, time);
+            gain.gain.setTargetAtTime(vol * 0.5, time + 0.01, 0.05);
+        }
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
 
         osc.connect(filter);
         filter.connect(gain);
-        gain.connect(this.distortion);
+        gain.connect(this.soloBus);
 
         osc.start(time);
-        osc.stop(time + 0.22);
+        osc.stop(time + 0.25);
     }
 
-    _playScreamNote(time, freq) {
-        // Aggressive distorted square wave with pitch bend
+    _playScreamNote(time, freq, prevFreq, accented) {
+        // Distorted square wave with vibrato + pitch bend
+        // Slides on consecutive notes, accents increase distortion + vibrato
         const ctx = this.ctx;
+        const sliding = prevFreq > 0;
 
         const osc = ctx.createOscillator();
         osc.type = 'square';
-        osc.frequency.setValueAtTime(freq * 0.97, time);
-        osc.frequency.exponentialRampToValueAtTime(freq, time + 0.025);
 
+        if (sliding) {
+            osc.frequency.setValueAtTime(prevFreq * 0.97, time);
+            osc.frequency.exponentialRampToValueAtTime(freq, time + 0.04);
+        } else {
+            osc.frequency.setValueAtTime(freq * 0.95, time);
+            osc.frequency.exponentialRampToValueAtTime(freq, time + 0.025);
+        }
+
+        // Vibrato LFO — kicks in after attack transient
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = accented ? 7 : 5;
+        const lfoDepth = ctx.createGain();
+        lfoDepth.gain.setValueAtTime(0, time);
+        lfoDepth.gain.linearRampToValueAtTime(
+            freq * (accented ? 0.04 : 0.025), time + 0.06
+        );
+        lfo.connect(lfoDepth);
+        lfoDepth.connect(osc.frequency);
+
+        // Filter
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.Q.value = 6;
-        filter.frequency.setValueAtTime(freq * 8, time);
-        filter.frequency.exponentialRampToValueAtTime(freq * 2, time + 0.18);
+        filter.Q.value = accented ? 8 : 6;
+        filter.frequency.setValueAtTime(freq * (accented ? 12 : 8), time);
+        filter.frequency.exponentialRampToValueAtTime(freq * 2, time + 0.22);
 
-        // Extra distortion layer
+        // Extra crunch — accents hit harder
         const crunch = ctx.createWaveShaper();
-        crunch.curve = this._makeDistortionCurve(25);
+        crunch.curve = this._makeDistortionCurve(accented ? 35 : 25);
 
+        // Gain
+        const vol = accented ? 0.14 : 0.08;
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.10, time);
-        gain.gain.setTargetAtTime(0.05, time + 0.01, 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
+        gain.gain.setValueAtTime(vol, time);
+        gain.gain.setTargetAtTime(vol * 0.5, time + 0.01, 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.32);
 
         osc.connect(filter);
         filter.connect(crunch);
         crunch.connect(gain);
-        gain.connect(this.compressor);
+        gain.connect(this.soloBus);
 
+        lfo.start(time);
+        lfo.stop(time + 0.32);
         osc.start(time);
-        osc.stop(time + 0.28);
+        osc.stop(time + 0.32);
     }
 
     // ========== Continuous layers ==========
