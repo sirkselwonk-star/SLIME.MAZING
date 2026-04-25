@@ -15,7 +15,7 @@ export class ShipControls {
         this.rotSpeed = 1.0;       // slower roll
         this.rotDamping = 0.88;
         this.maxSpeed = 10;        // reduced from 15
-        this.mouseSensitivity = 0.0015;
+        this.mouseSensitivity = 0.003;
 
         // Mouse smoothing state
         this.keys = {};
