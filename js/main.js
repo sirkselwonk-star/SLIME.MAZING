@@ -105,7 +105,7 @@ function init() {
             const subtitle = menu.querySelector('.subtitle');
             const prompt = menu.querySelector('.prompt');
             title.textContent = 'PAUSED';
-            subtitle.textContent = 'SLIME MINER';
+            subtitle.textContent = 'SLIME.MAZING';
             prompt.textContent = '[ CLICK TO RESUME ]';
             menu.style.display = 'flex';
         }
@@ -228,7 +228,7 @@ function restartGame() {
 
     // Reset menu title back to normal for next pause
     const menu = document.getElementById('menu-screen');
-    menu.querySelector('h1').textContent = 'SLIME MINER';
+    menu.querySelector('h1').textContent = 'SLIME.MAZING';
     menu.querySelector('.subtitle').textContent = 'DESCENT INTO THE SLIME';
     menu.querySelector('.prompt').textContent = '[ CLICK TO START ]';
 
