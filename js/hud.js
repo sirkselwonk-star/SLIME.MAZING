@@ -29,6 +29,7 @@ export class HUD {
         this._drawCrosshair(ctx, w, h);
         this._drawHealthBar(ctx, state, w, h);
         this._drawAmmoCounter(ctx, state, w, h);
+        this._drawEyesBleedIndicator(ctx, state, w, h);
     }
 
     _drawVignette(ctx, state, w, h) {
@@ -403,5 +404,30 @@ export class HUD {
 
         ctx.fillStyle = `rgba(255, 30, 30, ${flash * 0.3})`;
         ctx.fillRect(0, 0, w, h);
+    }
+
+    _drawEyesBleedIndicator(ctx, state, w, h) {
+        if (!state.eyesBleedActive) return;
+
+        const text = 'EYES BLEED!';
+        const x = w / 2;
+        const y = h - 50;
+
+        ctx.save();
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Glow
+        ctx.shadowColor = '#ff00ff';
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = '#ff00ff';
+        ctx.fillText(text, x, y);
+
+        // Sharper pass
+        ctx.shadowBlur = 8;
+        ctx.fillText(text, x, y);
+
+        ctx.restore();
     }
 }

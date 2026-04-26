@@ -13,6 +13,7 @@ import { WeaponSystem } from './weapons.js';
 import { EnemyManager } from './enemies.js';
 import { SoundtrackManager } from './audio.js';
 import { GalleryManager } from './gallery.js';
+import { EyesBleedManager } from './eyesbleed.js';
 
 window.THREE = THREE;
 
@@ -26,6 +27,7 @@ let headlight;
 let weapons, enemyManager;
 let soundtrack;
 let gallery;
+let eyesBleed;
 
 // Locked aspect ratio
 const TARGET_ASPECT = 16 / 9;
@@ -84,11 +86,18 @@ function init() {
     // Soundtrack
     soundtrack = new SoundtrackManager();
 
-    // M key to toggle mute
+    // M key to toggle mute, B key to toggle Eyes Bleed
     document.addEventListener('keydown', e => {
         if (e.code === 'KeyM') {
             const muted = soundtrack.toggleMute();
             console.log(muted ? 'Audio muted' : 'Audio unmuted');
+        }
+        if (e.code === 'KeyB' && gameState.state === 'PLAYING' && mazeData) {
+            if (eyesBleed.isActive) {
+                eyesBleed.deactivate();
+            } else {
+                eyesBleed.activate(mazeData.wallMeshes);
+            }
         }
     });
     window._debug = { scene, camera, renderer, get mazeData() { return mazeData; }, get gridData() { return gridData; }, get colliders() { return colliders; } };
@@ -208,6 +217,9 @@ function buildLevel() {
         }).then(() => {
             if (loadingEl) loadingEl.style.display = 'none';
         });
+
+        // Eyes Bleed manager
+        eyesBleed = new EyesBleedManager();
     });
 }
 
@@ -227,6 +239,7 @@ function restartGame() {
     if (weapons) weapons.cleanup();
     if (enemyManager) enemyManager.cleanup();
     if (gallery) gallery.cleanup();
+    if (eyesBleed) eyesBleed.cleanup();
 
     // Reset game state
     gameState = new GameState();
@@ -395,6 +408,9 @@ function animate() {
         // Update particles
         updateParticles(dt);
 
+        // Update Eyes Bleed shader time
+        if (eyesBleed) eyesBleed.update(clock.getElapsedTime());
+
         // Animate maze lights
         if (mazeData && mazeData.lights) {
             const time = Date.now() * 0.001;
@@ -456,7 +472,8 @@ function animate() {
         gunAmmo: gameState.gunAmmo,
         rocketAmmo: gameState.rocketAmmo,
         damageFlash: gameState.damageFlash,
-        enemyPositions: enemyManager ? enemyManager.getEnemyPositions() : []
+        enemyPositions: enemyManager ? enemyManager.getEnemyPositions() : [],
+        eyesBleedActive: eyesBleed ? eyesBleed.isActive : false
     });
 
     renderer.render(scene, camera);
