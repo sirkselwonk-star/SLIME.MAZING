@@ -3,8 +3,8 @@
 
 import * as THREE from 'three';
 
-// GPU particle shaders
-const PARTICLE_VERTEX_SHADER = `
+// --- GLOW ORBS (original floating particles) ---
+const GLOW_VERTEX = `
     attribute float aPhase;
     uniform float uTime;
     varying float vAlpha;
@@ -20,8 +20,7 @@ const PARTICLE_VERTEX_SHADER = `
         gl_Position = projectionMatrix * mv;
     }
 `;
-
-const PARTICLE_FRAGMENT_SHADER = `
+const GLOW_FRAGMENT = `
     varying float vAlpha;
     uniform vec3 uColor;
     void main(){
@@ -30,6 +29,114 @@ const PARTICLE_FRAGMENT_SHADER = `
         gl_FragColor = vec4(uColor * glow, vAlpha * glow);
     }
 `;
+
+// --- FIRE (rising embers that flicker and fade) ---
+const FIRE_VERTEX = `
+    attribute float aPhase;
+    uniform float uTime;
+    varying float vAlpha;
+    varying float vHeat;
+    void main(){
+        float t = fract(uTime / 2.0 + aPhase);
+        vec3 p = position;
+        p.y += t * 4.0;
+        // Turbulent horizontal flicker
+        p.x += sin(t * 12.0 + aPhase * 20.0) * 0.2 * (1.0 - t);
+        p.z += cos(t * 10.0 + aPhase * 15.0) * 0.15 * (1.0 - t);
+        // Hot at base, cool at top
+        vHeat = 1.0 - t;
+        vAlpha = smoothstep(0.0, 0.05, t) * smoothstep(1.0, 0.3, t);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = mix(10.0, 4.0, t) * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+    }
+`;
+const FIRE_FRAGMENT = `
+    varying float vAlpha;
+    varying float vHeat;
+    void main(){
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        float glow = exp(-d * d * 3.0);
+        // Yellow-white core → orange → red at edges
+        vec3 col = mix(vec3(1.0, 0.2, 0.0), vec3(1.0, 0.9, 0.3), vHeat * vHeat);
+        col = mix(col, vec3(1.0, 1.0, 0.8), pow(vHeat, 4.0) * glow);
+        gl_FragColor = vec4(col * glow, vAlpha * glow);
+    }
+`;
+
+// --- LIGHTNING (electric sparks that jitter violently) ---
+const LIGHTNING_VERTEX = `
+    attribute float aPhase;
+    uniform float uTime;
+    varying float vAlpha;
+    varying float vIntensity;
+    void main(){
+        // Burst cycle: sparks appear in short flashes
+        float cycle = uTime * 1.5 + aPhase * 6.2832;
+        float burst = step(0.7, fract(cycle * 0.3 + aPhase));
+        float t = fract(uTime * 3.0 + aPhase);
+        vec3 p = position;
+        // Violent jitter
+        float jitter = burst * step(0.5, fract(sin(uTime * 50.0 + aPhase * 100.0) * 43758.5));
+        p.x += (fract(sin(uTime * 30.0 + aPhase * 73.0) * 43758.5) - 0.5) * 1.2 * jitter;
+        p.y += (fract(sin(uTime * 37.0 + aPhase * 91.0) * 43758.5)) * 3.0 * jitter;
+        p.z += (fract(sin(uTime * 43.0 + aPhase * 57.0) * 43758.5) - 0.5) * 1.2 * jitter;
+        vIntensity = burst;
+        vAlpha = burst * (0.5 + 0.5 * sin(uTime * 20.0 + aPhase * 30.0));
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = (6.0 + 8.0 * burst) * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+    }
+`;
+const LIGHTNING_FRAGMENT = `
+    varying float vAlpha;
+    varying float vIntensity;
+    void main(){
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        float glow = exp(-d * d * 2.5);
+        // Electric blue-white core
+        vec3 col = mix(vec3(0.3, 0.5, 1.0), vec3(0.8, 0.9, 1.0), glow * vIntensity);
+        gl_FragColor = vec4(col * glow, vAlpha * glow);
+    }
+`;
+
+// --- SNOW (drifting flakes that fall and sway) ---
+const SNOW_VERTEX = `
+    attribute float aPhase;
+    uniform float uTime;
+    varying float vAlpha;
+    void main(){
+        float t = fract(uTime * 0.25 + aPhase);
+        vec3 p = position;
+        // Fall downward from ceiling height
+        p.y += (1.0 - t) * 4.0;
+        // Gentle swaying drift
+        p.x += sin(t * 4.0 + aPhase * 8.0) * 0.5;
+        p.z += cos(t * 3.0 + aPhase * 6.0) * 0.4;
+        vAlpha = smoothstep(0.0, 0.1, t) * smoothstep(1.0, 0.8, t) * 0.8;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = mix(4.0, 7.0, aPhase) * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+    }
+`;
+const SNOW_FRAGMENT = `
+    varying float vAlpha;
+    void main(){
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        // Soft round flake
+        float flake = smoothstep(1.0, 0.3, d);
+        vec3 col = vec3(0.9, 0.92, 1.0);
+        gl_FragColor = vec4(col * flake, vAlpha * flake);
+    }
+`;
+
+// Effect type definitions for the 4 cubic-space particle effects
+const CUBIC_EFFECTS = [
+    { name: 'glow',      vert: GLOW_VERTEX,      frag: GLOW_FRAGMENT,      perCell: 8,  useZoneColor: true  },
+    { name: 'fire',      vert: FIRE_VERTEX,       frag: FIRE_FRAGMENT,      perCell: 12, useZoneColor: false },
+    { name: 'lightning',  vert: LIGHTNING_VERTEX,   frag: LIGHTNING_FRAGMENT,  perCell: 10, useZoneColor: false },
+    { name: 'snow',      vert: SNOW_VERTEX,       frag: SNOW_FRAGMENT,      perCell: 14, useZoneColor: false },
+];
 
 // HSL → RGB helper for zone-based particle coloring
 function hslToRgb(h, s, l) {
@@ -149,8 +256,8 @@ export class EyesBleedManager {
         this._originalMaterials = new Map();
         // Array of ShaderMaterials created (for disposal)
         this._shaderMaterials = [];
-        // V2: particles + overlay canvas
-        this._particleSystem = null;
+        // V2: cubic-space particle systems + overlay canvas
+        this._particleSystems = [];  // array of THREE.Points
         this._particleTimeUniform = { value: 0 };
         this._scene = null;
         this._overlayCanvas = null;
@@ -269,13 +376,13 @@ export class EyesBleedManager {
         }
         this._shaderMaterials = [];
 
-        // V2: dispose particles
-        if (this._particleSystem) {
-            if (this._scene) this._scene.remove(this._particleSystem);
-            this._particleSystem.geometry.dispose();
-            this._particleSystem.material.dispose();
-            this._particleSystem = null;
+        // V2: dispose all particle systems
+        for (const ps of this._particleSystems) {
+            if (this._scene) this._scene.remove(ps);
+            ps.geometry.dispose();
+            ps.material.dispose();
         }
+        this._particleSystems = [];
 
         // V2: remove overlay canvas
         if (this._overlayCanvas) {
@@ -379,14 +486,14 @@ export class EyesBleedManager {
     }
 
     /**
-     * V2: Spawn GPU particles in ~15% of floor cells.
+     * V2: Spawn 4 types of cubic-space particle effects across ~60% of floor cells.
+     * Zone hash determines effect type: glow orbs, fire, lightning, or snow.
      */
     _createParticles(scene, floorMeshes) {
         if (!floorMeshes) return;
 
-        const PARTICLES_PER_CELL = 8;
-        const cellPositions = [];
-        const cellHues = [];
+        // Bucket cells by effect type
+        const buckets = CUBIC_EFFECTS.map(() => ({ positions: [], hues: [] }));
 
         for (const key in floorMeshes) {
             const mesh = floorMeshes[key];
@@ -396,61 +503,71 @@ export class EyesBleedManager {
             const row = parseInt(parts[0]);
             const col = parseInt(parts[1]);
 
-            // ~60% of cells via deterministic hash
+            // ~60% of cells
             if ((row * 7 + col * 13 + 37) % 10 >= 6) continue;
 
-            // Zone hue from zone hash
+            // Zone determines effect type
             const zoneR = Math.floor(row / 6);
             const zoneC = Math.floor(col / 6);
-            const hue = ((zoneR * 7919 + zoneC * 6271) & 0xffff) / 65536.0;
+            const zoneHash = (zoneR * 7919 + zoneC * 6271 + 42) & 0xffff;
+            const effectIdx = zoneHash % CUBIC_EFFECTS.length;
+            const hue = zoneHash / 65536.0;
 
-            cellPositions.push(mesh.position);
-            cellHues.push(hue);
+            buckets[effectIdx].positions.push(mesh.position);
+            buckets[effectIdx].hues.push(hue);
         }
 
-        const totalParticles = cellPositions.length * PARTICLES_PER_CELL;
-        if (totalParticles === 0) return;
+        // Build one Points system per effect type
+        for (let e = 0; e < CUBIC_EFFECTS.length; e++) {
+            const bucket = buckets[e];
+            if (bucket.positions.length === 0) continue;
 
-        const positions = new Float32Array(totalParticles * 3);
-        const phases = new Float32Array(totalParticles);
-        let rSum = 0, gSum = 0, bSum = 0;
+            const effect = CUBIC_EFFECTS[e];
+            const perCell = effect.perCell;
+            const total = bucket.positions.length * perCell;
 
-        let idx = 0;
-        for (let c = 0; c < cellPositions.length; c++) {
-            const pos = cellPositions[c];
-            const [r, g, b] = hslToRgb(cellHues[c], 0.8, 0.55);
-            rSum += r; gSum += g; bSum += b;
+            const posArr = new Float32Array(total * 3);
+            const phaseArr = new Float32Array(total);
+            let rSum = 0, gSum = 0, bSum = 0;
 
-            for (let p = 0; p < PARTICLES_PER_CELL; p++) {
-                positions[idx * 3]     = pos.x + (Math.random() - 0.5) * 1.5;
-                positions[idx * 3 + 1] = pos.y;
-                positions[idx * 3 + 2] = pos.z + (Math.random() - 0.5) * 1.5;
-                phases[idx] = Math.random();
-                idx++;
+            let idx = 0;
+            for (let c = 0; c < bucket.positions.length; c++) {
+                const pos = bucket.positions[c];
+                const [r, g, b] = hslToRgb(bucket.hues[c], 0.8, 0.55);
+                rSum += r; gSum += g; bSum += b;
+
+                for (let p = 0; p < perCell; p++) {
+                    posArr[idx * 3]     = pos.x + (Math.random() - 0.5) * 1.5;
+                    posArr[idx * 3 + 1] = pos.y;
+                    posArr[idx * 3 + 2] = pos.z + (Math.random() - 0.5) * 1.5;
+                    phaseArr[idx] = Math.random();
+                    idx++;
+                }
             }
+
+            const n = bucket.positions.length;
+            const avgColor = new THREE.Color(rSum / n, gSum / n, bSum / n);
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+            geo.setAttribute('aPhase', new THREE.BufferAttribute(phaseArr, 1));
+
+            const mat = new THREE.ShaderMaterial({
+                vertexShader: effect.vert,
+                fragmentShader: effect.frag,
+                uniforms: {
+                    uTime: this._particleTimeUniform,
+                    uColor: { value: avgColor }
+                },
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            this._particleSystems.push(points);
         }
-
-        const n = cellPositions.length;
-        const avgColor = new THREE.Color(rSum / n, gSum / n, bSum / n);
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geo.setAttribute('aPhase', new THREE.BufferAttribute(phases, 1));
-
-        const mat = new THREE.ShaderMaterial({
-            vertexShader: PARTICLE_VERTEX_SHADER,
-            fragmentShader: PARTICLE_FRAGMENT_SHADER,
-            uniforms: {
-                uTime: this._particleTimeUniform,
-                uColor: { value: avgColor }
-            },
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false
-        });
-
-        this._particleSystem = new THREE.Points(geo, mat);
-        scene.add(this._particleSystem);
     }
 
     /**
