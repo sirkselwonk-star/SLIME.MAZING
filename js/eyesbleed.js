@@ -620,6 +620,7 @@ export class EyesBleedManager {
             });
 
             const points = new THREE.Points(geo, mat);
+            points.renderOrder = 999;  // draw after all solid geometry + labels
             scene.add(points);
             this._particleSystems.push(points);
         }
