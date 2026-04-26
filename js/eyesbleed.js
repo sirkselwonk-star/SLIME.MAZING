@@ -5,10 +5,8 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
 
 // Custom film grain + scanlines shader (v0.164 FilmShader lacks scanlines)
 const FilmGrainScanlineShader = {
@@ -378,30 +376,28 @@ export class EyesBleedManager {
      */
     _createComposer(renderer, scene, camera) {
         const size = renderer.getSize(new THREE.Vector2());
-        const composer = new EffectComposer(renderer);
+
+        // Explicit render target — avoids half-float issues on some GPUs
+        const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
+            type: THREE.HalfFloatType
+        });
+        const composer = new EffectComposer(renderer, rt);
 
         // 1. Base scene render
         composer.addPass(new RenderPass(scene, camera));
 
         // 2. Bloom — gentle glow from shader walls
-        const bloom = new UnrealBloomPass(size, 0.3, 0.4, 0.4);
+        const bloom = new UnrealBloomPass(
+            new THREE.Vector2(size.x, size.y), 0.3, 0.4, 0.4
+        );
         composer.addPass(bloom);
 
-        // 3. Afterimage — faint motion trails
-        const afterimage = new AfterimagePass(0.4);
-        composer.addPass(afterimage);
-
-        // 4. RGB shift — barely-there chromatic aberration
-        const rgbShift = new ShaderPass(RGBShiftShader);
-        rgbShift.uniforms['amount'].value = 0.001;
-        composer.addPass(rgbShift);
-
-        // 5. Film grain + scanlines (mild)
+        // 3. Film grain + scanlines (mild)
         const film = new ShaderPass(FilmGrainScanlineShader);
         composer.addPass(film);
         this._filmPass = film;
 
-        // 6. Output — gamma/tonemapping (must be last)
+        // 4. Output — gamma/tonemapping (must be last)
         composer.addPass(new OutputPass());
 
         this._composer = composer;
