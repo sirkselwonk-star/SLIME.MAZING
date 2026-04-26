@@ -396,8 +396,8 @@ export class EyesBleedManager {
             const row = parseInt(parts[0]);
             const col = parseInt(parts[1]);
 
-            // ~30% of cells via deterministic hash
-            if ((row * 7 + col * 13 + 37) % 10 >= 3) continue;
+            // ~60% of cells via deterministic hash
+            if ((row * 7 + col * 13 + 37) % 10 >= 6) continue;
 
             // Zone hue from zone hash
             const zoneR = Math.floor(row / 6);
