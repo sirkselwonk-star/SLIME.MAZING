@@ -6,7 +6,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
-import { GlitchPass } from 'three/addons/postprocessing/GlitchPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RGBShiftShader } from 'three/addons/shaders/RGBShiftShader.js';
@@ -16,9 +15,9 @@ const FilmGrainScanlineShader = {
     uniforms: {
         tDiffuse: { value: null },
         time: { value: 0 },
-        grainIntensity: { value: 0.12 },
-        scanlineIntensity: { value: 0.08 },
-        scanlineCount: { value: 600.0 }
+        grainIntensity: { value: 0.04 },
+        scanlineIntensity: { value: 0.03 },
+        scanlineCount: { value: 400.0 }
     },
     vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
     fragmentShader: `
@@ -53,7 +52,7 @@ const PARTICLE_VERTEX_SHADER = `
         p.z += cos(t * 6.2832 + aPhase * 7.0) * 0.15;
         vAlpha = smoothstep(0.0, 0.1, t) * smoothstep(1.0, 0.6, t);
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = 6.0 * (300.0 / -mv.z);
+        gl_PointSize = 3.0 * (300.0 / -mv.z);
         gl_Position = projectionMatrix * mv;
     }
 `;
@@ -119,13 +118,13 @@ uniform float time;
 varying vec2 vUv;
 void main() {
     vUv = uv;
-    // UV warping — surface undulation
-    vUv += 0.015 * vec2(
-        sin(position.x * 4.0 + time * 1.5),
-        cos(position.z * 4.0 + time * 1.2)
+    // UV warping — gentle surface undulation
+    vUv += 0.005 * vec2(
+        sin(position.x * 4.0 + time * 1.0),
+        cos(position.z * 4.0 + time * 0.8)
     );
-    // Geometric breathing — subtle mesh displacement along normal
-    vec3 displaced = position + normal * sin(time * 2.0 + position.x * 3.0 + position.z * 3.0) * 0.08;
+    // Geometric breathing — very subtle mesh displacement along normal
+    vec3 displaced = position + normal * sin(time * 1.5 + position.x * 3.0 + position.z * 3.0) * 0.025;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
 }
 `;
@@ -386,30 +385,25 @@ export class EyesBleedManager {
         // 1. Base scene render
         composer.addPass(new RenderPass(scene, camera));
 
-        // 2. Bloom — glow from shader walls
-        const bloom = new UnrealBloomPass(size, 0.8, 0.5, 0.2);
+        // 2. Bloom — gentle glow from shader walls
+        const bloom = new UnrealBloomPass(size, 0.3, 0.4, 0.4);
         composer.addPass(bloom);
 
-        // 3. Afterimage — ghostly motion trails
-        const afterimage = new AfterimagePass(0.85);
+        // 3. Afterimage — faint motion trails
+        const afterimage = new AfterimagePass(0.4);
         composer.addPass(afterimage);
 
-        // 4. RGB shift — chromatic aberration
+        // 4. RGB shift — barely-there chromatic aberration
         const rgbShift = new ShaderPass(RGBShiftShader);
-        rgbShift.uniforms['amount'].value = 0.003;
+        rgbShift.uniforms['amount'].value = 0.001;
         composer.addPass(rgbShift);
 
-        // 5. Film grain + scanlines
+        // 5. Film grain + scanlines (mild)
         const film = new ShaderPass(FilmGrainScanlineShader);
         composer.addPass(film);
         this._filmPass = film;
 
-        // 6. Glitch — intermittent screen tearing
-        const glitch = new GlitchPass();
-        glitch.goWild = false;
-        composer.addPass(glitch);
-
-        // 7. Output — gamma/tonemapping (must be last)
+        // 6. Output — gamma/tonemapping (must be last)
         composer.addPass(new OutputPass());
 
         this._composer = composer;
@@ -421,7 +415,7 @@ export class EyesBleedManager {
     _createParticles(scene, floorMeshes) {
         if (!floorMeshes) return;
 
-        const PARTICLES_PER_CELL = 8;
+        const PARTICLES_PER_CELL = 4;
         const cellPositions = [];
         const cellHues = [];
 
@@ -433,8 +427,8 @@ export class EyesBleedManager {
             const row = parseInt(parts[0]);
             const col = parseInt(parts[1]);
 
-            // ~30% of cells via deterministic hash
-            if ((row * 7 + col * 13 + 37) % 10 >= 3) continue;
+            // ~15% of cells via deterministic hash
+            if ((row * 7 + col * 13 + 37) % 20 >= 3) continue;
 
             // Zone hue from zone hash
             const zoneR = Math.floor(row / 6);
@@ -456,7 +450,7 @@ export class EyesBleedManager {
         let idx = 0;
         for (let c = 0; c < cellPositions.length; c++) {
             const pos = cellPositions[c];
-            const [r, g, b] = hslToRgb(cellHues[c], 0.9, 0.6);
+            const [r, g, b] = hslToRgb(cellHues[c], 0.6, 0.45);
             rSum += r; gSum += g; bSum += b;
 
             for (let p = 0; p < PARTICLES_PER_CELL; p++) {
