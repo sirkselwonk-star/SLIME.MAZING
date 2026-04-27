@@ -32,6 +32,10 @@ export class ShipControls {
         this.firing = { gun: false, rocket: false };
         this.gunHeld = false; // true while left mouse held
 
+        // Touch control state (set by TouchControlsManager)
+        this.touchActive = false;
+        this.touchThrust = { x: 0, y: 0 };
+
         this._bindEvents();
     }
 
@@ -92,7 +96,7 @@ export class ShipControls {
     }
 
     update(dt, colliders) {
-        if (!this.pointerLocked) return;
+        if (!this.pointerLocked && !this.touchActive) return;
 
         const cam = this.camera;
 
@@ -148,6 +152,16 @@ export class ShipControls {
         if (this.keys['KeyD']) thrust.add(right.clone().multiplyScalar(this.thrustPower * dt));
         if (this.keys['Space']) thrust.add(up.clone().multiplyScalar(this.thrustPower * dt * 0.5));
         if (this.keys['ShiftLeft'] || this.keys['ShiftRight']) thrust.add(up.clone().multiplyScalar(-this.thrustPower * dt * 0.5));
+
+        // Analog touch thrust (joystick x = strafe, y = forward/back)
+        if (this.touchActive) {
+            const tx = this.touchThrust.x;
+            const ty = this.touchThrust.y;
+            if (tx !== 0 || ty !== 0) {
+                thrust.add(right.clone().multiplyScalar(tx * this.thrustPower * dt));
+                thrust.add(forward.clone().multiplyScalar(-ty * this.thrustPower * dt));
+            }
+        }
 
         this.velocity.x += thrust.x;
         this.velocity.y += thrust.y;

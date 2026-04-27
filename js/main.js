@@ -14,6 +14,7 @@ import { EnemyManager } from './enemies.js';
 import { SoundtrackManager } from './audio.js';
 import { GalleryManager } from './gallery.js';
 import { EyesBleedManager } from './eyesbleed.js';
+import { TouchControlsManager } from './touch-controls.js';
 
 window.THREE = THREE;
 
@@ -28,6 +29,8 @@ let weapons, enemyManager;
 let soundtrack;
 let gallery;
 let eyesBleed;
+let touchControls;
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
 // Locked aspect ratio
 const TARGET_ASPECT = 16 / 9;
@@ -75,6 +78,33 @@ function init() {
     // Controls
     controls = new ShipControls(camera);
 
+    // Touch controls (creates overlay if touch device, otherwise no-op)
+    touchControls = new TouchControlsManager(controls);
+    touchControls.onEyesBleed = () => {
+        if (gameState.state === 'PLAYING' && mazeData && eyesBleed) {
+            if (eyesBleed.isActive) {
+                eyesBleed.deactivate();
+            } else {
+                eyesBleed.activate(mazeData.wallMeshes, mazeData.floorMeshes, mazeData.ceilingMeshes, { renderer, scene, camera });
+            }
+        }
+    };
+    touchControls.onMute = () => {
+        const muted = soundtrack.toggleMute();
+        console.log(muted ? 'Audio muted' : 'Audio unmuted');
+    };
+    touchControls.onPause = () => {
+        if (gameState.state === 'PLAYING') {
+            const menu = document.getElementById('menu-screen');
+            menu.querySelector('h1').textContent = 'PAUSED';
+            menu.querySelector('.subtitle').textContent = 'SLIME.MAZING';
+            menu.querySelector('.prompt').textContent = isTouchDevice ? '[ TAP TO RESUME ]' : '[ CLICK TO RESUME ]';
+            menu.style.display = 'flex';
+            touchControls.hide();
+            controls.touchActive = false;
+        }
+    };
+
     // HUD
     const hudCanvas = document.getElementById('hud-canvas');
     hud = new HUD(hudCanvas);
@@ -107,9 +137,21 @@ function init() {
 
     // Events
     window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => {
+        setTimeout(onResize, 100); // delay for orientation to settle
+    });
 
-    // Show pause screen when pointer lock is lost during gameplay
+    // Update menu text for touch devices
+    if (isTouchDevice) {
+        const menu = document.getElementById('menu-screen');
+        menu.querySelector('.prompt').textContent = '[ TAP TO START ]';
+        const controlsInfo = menu.querySelector('.controls-info');
+        if (controlsInfo) controlsInfo.style.display = 'none';
+    }
+
+    // Show pause screen when pointer lock is lost during gameplay (desktop only)
     document.addEventListener('pointerlockchange', () => {
+        if (isTouchDevice) return;
         if (!document.pointerLockElement && gameState && gameState.state === 'PLAYING') {
             const menu = document.getElementById('menu-screen');
             const title = menu.querySelector('h1');
@@ -127,7 +169,12 @@ function init() {
             startGame();
         } else if (gameState.state === 'PLAYING') {
             document.getElementById('menu-screen').style.display = 'none';
-            controls.lockPointer(renderer.domElement);
+            if (isTouchDevice) {
+                controls.touchActive = true;
+                touchControls.show();
+            } else {
+                controls.lockPointer(renderer.domElement);
+            }
         } else if (gameState.state === 'LEVEL_COMPLETE') {
             restartGame();
         }
@@ -229,7 +276,13 @@ function startGame() {
     gameState.state = 'PLAYING';
     document.getElementById('menu-screen').style.display = 'none';
     document.getElementById('level-complete').style.display = 'none';
-    controls.lockPointer(renderer.domElement);
+
+    if (isTouchDevice) {
+        controls.touchActive = true;
+        touchControls.show();
+    } else {
+        controls.lockPointer(renderer.domElement);
+    }
     // Start soundtrack on first user gesture (browser autoplay policy)
     soundtrack.start();
 }
@@ -254,7 +307,7 @@ function restartGame() {
     const menu = document.getElementById('menu-screen');
     menu.querySelector('h1').textContent = 'SLIME.MAZING';
     menu.querySelector('.subtitle').textContent = 'DESCENT INTO THE SLIME';
-    menu.querySelector('.prompt').textContent = '[ CLICK TO START ]';
+    menu.querySelector('.prompt').textContent = isTouchDevice ? '[ TAP TO START ]' : '[ CLICK TO START ]';
 
     // Reset level-complete heading (may have been changed to DESTROYED)
     document.getElementById('level-complete').querySelector('h2').textContent = 'LEVEL COMPLETE';
@@ -350,6 +403,7 @@ function animate() {
     const dt = Math.min(clock.getDelta(), 0.05);
 
     if (gameState.state === 'PLAYING') {
+        if (touchControls) touchControls.update();
         controls.update(dt, colliders);
 
         // Handle firing — gun (left click / held), rocket (right click)
@@ -427,7 +481,8 @@ function animate() {
         // Check level complete
         if (gameState.state === 'LEVEL_COMPLETE') {
             document.getElementById('level-complete').style.display = 'flex';
-            document.exitPointerLock();
+            if (isTouchDevice) { touchControls.hide(); controls.touchActive = false; }
+            else { document.exitPointerLock(); }
 
             const scoreEl = document.getElementById('final-score');
             if (scoreEl) {
@@ -440,7 +495,8 @@ function animate() {
             gameState.state = 'LEVEL_COMPLETE';
             document.getElementById('level-complete').style.display = 'flex';
             document.getElementById('level-complete').querySelector('h2').textContent = 'DESTROYED';
-            document.exitPointerLock();
+            if (isTouchDevice) { touchControls.hide(); controls.touchActive = false; }
+            else { document.exitPointerLock(); }
             const scoreEl = document.getElementById('final-score');
             if (scoreEl) scoreEl.textContent = `${gameState.oreCollected} / ${gameState.oreTotal}`;
         }
@@ -529,6 +585,7 @@ function applyViewportSize() {
 
 function onResize() {
     applyViewportSize();
+    if (touchControls) touchControls.updateLayout();
 }
 
 // Start when Three.js is loaded
