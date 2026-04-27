@@ -154,8 +154,6 @@ export class TouchControlsManager {
     _createButtons(overlay) {
         this.buttons.gun = this._createButton('GUN', '#4ade80');
         this.buttons.rocket = this._createButton('RKT', '#fb923c');
-        this.buttons.up = this._createButton('UP', '#22d3ee');
-        this.buttons.down = this._createButton('DWN', '#22d3ee');
         this.buttons.eyesBleed = this._createButton('EYE', '#f472b6', 44);
         this.buttons.mute = this._createButton('MUT', '#888', 44);
         this.buttons.pause = this._createButton('| |', '#888', 44);
@@ -183,8 +181,6 @@ export class TouchControlsManager {
         // Buttons
         this._bindButton(this.buttons.gun, 'gun');
         this._bindButton(this.buttons.rocket, 'rocket');
-        this._bindButton(this.buttons.up, 'up');
-        this._bindButton(this.buttons.down, 'down');
         this._bindButton(this.buttons.eyesBleed, 'eyesBleed');
         this._bindButton(this.buttons.mute, 'mute');
         this._bindButton(this.buttons.pause, 'pause');
@@ -202,10 +198,6 @@ export class TouchControlsManager {
                 this.controls.firing.gun = true;
             } else if (action === 'rocket') {
                 this.controls.firing.rocket = true;
-            } else if (action === 'up') {
-                this.controls.keys['Space'] = true;
-            } else if (action === 'down') {
-                this.controls.keys['ShiftLeft'] = true;
             } else if (action === 'eyesBleed') {
                 if (this.onEyesBleed) this.onEyesBleed();
             } else if (action === 'mute') {
@@ -222,16 +214,12 @@ export class TouchControlsManager {
             el.style.background = 'rgba(0,0,0,0.35)';
 
             if (action === 'gun') this.controls.gunHeld = false;
-            if (action === 'up') this.controls.keys['Space'] = false;
-            if (action === 'down') this.controls.keys['ShiftLeft'] = false;
         }, { passive: false });
 
         el.addEventListener('touchcancel', e => {
             el.style.opacity = '0.7';
             el.style.background = 'rgba(0,0,0,0.35)';
             if (action === 'gun') this.controls.gunHeld = false;
-            if (action === 'up') this.controls.keys['Space'] = false;
-            if (action === 'down') this.controls.keys['ShiftLeft'] = false;
         }, { passive: false });
     }
 
@@ -423,25 +411,19 @@ export class TouchControlsManager {
             pointer-events: auto; touch-action: none;
         `;
 
-        // Action buttons — center column (on game viewport)
-        const margin = 14;
+        const gap = 10;
         const bSize = 56;
-        const centerX = Math.floor(w / 2);
-        const bottomBase = h - margin - bSize;
-
-        this._posBtn(this.buttons.gun, centerX + 4, bottomBase);
-        this._posBtn(this.buttons.rocket, centerX + 4, bottomBase - bSize - margin);
-        this._posBtn(this.buttons.up, centerX - bSize - margin + 4, bottomBase - bSize - margin);
-        this._posBtn(this.buttons.down, centerX - bSize - margin + 4, bottomBase);
-
-        // Option buttons — stacked vertically in each pillarbox bar, above sticks
-        const optGap = 8;
         const optSize = 44;
-        // Left bar: EYE and MUT stacked
-        this._posBtn(this.buttons.eyesBleed, leftStickX - optSize / 2, stickY - 50 - optSize - optGap);
-        this._posBtn(this.buttons.mute, leftStickX - optSize / 2, stickY - 50 - (optSize + optGap) * 2);
-        // Right bar: PAUSE
-        this._posBtn(this.buttons.pause, rightStickX - optSize / 2, stickY - 50 - optSize - optGap);
+
+        // Fire buttons — right pillarbox bar, stacked next to the right stick
+        this._posBtn(this.buttons.gun, rightStickX - bSize / 2, stickY - 50 - bSize - gap);
+        this._posBtn(this.buttons.rocket, rightStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
+
+        // Option buttons — left pillarbox bar, stacked above left stick
+        this._posBtn(this.buttons.eyesBleed, leftStickX - optSize / 2, stickY - 50 - optSize - gap);
+        this._posBtn(this.buttons.mute, leftStickX - optSize / 2, stickY - 50 - (optSize + gap) * 2);
+        // Pause — above right fire buttons
+        this._posBtn(this.buttons.pause, rightStickX - optSize / 2, stickY - 50 - (bSize + gap) * 2 - optSize - gap);
     }
 
     _layoutPortrait(w, h) {
@@ -469,25 +451,19 @@ export class TouchControlsManager {
             pointer-events: auto; touch-action: none;
         `;
 
-        // Action buttons — center strip in bottom bar
-        const margin = 10;
+        const gap = 10;
         const bSize = 50;
-        const centerX = Math.floor(w / 2) - Math.floor(bSize / 2);
-        const bottomBase = h - margin - bSize;
-
-        this._posBtn(this.buttons.gun, centerX, bottomBase);
-        this._posBtn(this.buttons.rocket, centerX, bottomBase - bSize - margin);
-        this._posBtn(this.buttons.up, centerX, bottomBase - (bSize + margin) * 2);
-        this._posBtn(this.buttons.down, centerX, bottomBase - (bSize + margin) * 3);
-
-        // Option buttons — horizontal row at top of bottom bar (just below game viewport)
-        const optY = controlTop + 10;
         const optSize = 44;
-        const optGap = 10;
-        // Spread across the top of the bar
-        this._posBtn(this.buttons.eyesBleed, leftStickX - optSize / 2, optY);
-        this._posBtn(this.buttons.mute, leftStickX + optSize / 2 + optGap, optY);
-        this._posBtn(this.buttons.pause, rightStickX - optSize / 2, optY);
+
+        // Fire buttons — stacked above right stick
+        this._posBtn(this.buttons.gun, rightStickX - bSize / 2, stickY - 50 - bSize - gap);
+        this._posBtn(this.buttons.rocket, rightStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
+
+        // Option buttons — above left stick
+        this._posBtn(this.buttons.eyesBleed, leftStickX - optSize / 2, stickY - 50 - optSize - gap);
+        this._posBtn(this.buttons.mute, leftStickX + optSize / 2 + gap, stickY - 50 - optSize - gap);
+        // Pause — top of bottom bar
+        this._posBtn(this.buttons.pause, rightStickX - optSize / 2, controlTop + gap);
     }
 
     _posBtn(el, x, y) {
