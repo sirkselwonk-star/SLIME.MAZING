@@ -309,6 +309,9 @@ export class EyesBleedManager {
         this._scene = null;
         this._overlayCanvas = null;
         this._overlayCtx = null;
+        // V2: laser light show
+        this._laserBeams = [];       // { mesh, pivot, speed, axis }
+        this._laserMaterials = [];   // for disposal
     }
 
     get isActive() {
@@ -398,6 +401,7 @@ export class EyesBleedManager {
         if (sc) {
             this._scene = sc;
             this._createParticles(sc, floorMeshes, ceilingMeshes);
+            this._createLasers(sc, floorMeshes);
         }
         if (renderer) {
             this._createOverlay(renderer);
@@ -431,6 +435,17 @@ export class EyesBleedManager {
         }
         this._particleSystems = [];
 
+        // V2: dispose laser beams
+        for (const beam of this._laserBeams) {
+            if (this._scene) this._scene.remove(beam.pivot);
+            beam.mesh.geometry.dispose();
+        }
+        for (const mat of this._laserMaterials) {
+            mat.dispose();
+        }
+        this._laserBeams = [];
+        this._laserMaterials = [];
+
         // V2: remove overlay canvas
         if (this._overlayCanvas) {
             this._overlayCanvas.remove();
@@ -448,6 +463,11 @@ export class EyesBleedManager {
         if (this._active) {
             this.timeUniform.value = time;
             this._particleTimeUniform.value = time;
+            // Animate laser beams
+            for (const beam of this._laserBeams) {
+                beam.pivot.rotation.y = time * beam.speedY;
+                beam.pivot.rotation.z = beam.baseZ + Math.sin(time * beam.speedZ) * beam.swingZ;
+            }
             // Draw overlay scanlines + grain
             this._drawOverlay(time);
         }
@@ -623,6 +643,95 @@ export class EyesBleedManager {
             points.renderOrder = 999;  // draw after all solid geometry + labels
             scene.add(points);
             this._particleSystems.push(points);
+        }
+    }
+
+    /**
+     * V2: Create laser light show — rotating beams in ~25% of floor cells.
+     * Each laser zone gets 3-5 beams of varying colors, speeds, and tilt angles.
+     */
+    _createLasers(scene, floorMeshes) {
+        if (!floorMeshes) return;
+
+        // Laser colors — vivid saturated beams
+        const LASER_COLORS = [
+            0xff0040, // red-pink
+            0x00ff80, // green
+            0x4080ff, // blue
+            0xff00ff, // magenta
+            0x00ffff, // cyan
+            0xffff00, // yellow
+            0xff8000, // orange
+        ];
+
+        // Shared thin cylinder geometry (radius 0.02, height 5 units)
+        const beamGeo = new THREE.CylinderGeometry(0.02, 0.02, 5, 4, 1);
+        // Shift origin to bottom so beam pivots from floor
+        beamGeo.translate(0, 2.5, 0);
+
+        for (const key in floorMeshes) {
+            const mesh = floorMeshes[key];
+            if (!mesh || !mesh.visible) continue;
+
+            const parts = key.split(',');
+            const row = parseInt(parts[0]);
+            const col = parseInt(parts[1]);
+
+            // ~25% of cells, different selection than particles
+            if ((row * 11 + col * 23 + 53) % 4 !== 0) continue;
+
+            const pos = mesh.position;
+            const zoneR = Math.floor(row / 6);
+            const zoneC = Math.floor(col / 6);
+            const zoneHash = (zoneR * 4219 + zoneC * 3571) & 0xffff;
+
+            // 3-5 beams per cell
+            const beamCount = 3 + (zoneHash % 3);
+
+            for (let b = 0; b < beamCount; b++) {
+                const colorIdx = (zoneHash + b * 3) % LASER_COLORS.length;
+                const color = LASER_COLORS[colorIdx];
+
+                const mat = new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 0.6,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    side: THREE.DoubleSide
+                });
+                this._laserMaterials.push(mat);
+
+                const beamMesh = new THREE.Mesh(beamGeo, mat);
+
+                // Pivot group at floor position — beam rotates around this point
+                const pivot = new THREE.Group();
+                pivot.position.set(pos.x, 0, pos.z);
+                pivot.add(beamMesh);
+
+                // Each beam gets unique rotation speeds and tilt
+                const seed = zoneHash * 17 + b * 131;
+                const speedY = 0.4 + ((seed & 0xff) / 255) * 1.2;       // Y rotation speed
+                const speedZ = 0.3 + (((seed >> 8) & 0xff) / 255) * 0.8; // Z swing speed
+                const baseZ = 0.2 + ((seed * 7) & 0xff) / 255 * 0.5;    // base tilt
+                const swingZ = 0.15 + ((seed * 13) & 0xff) / 255 * 0.3; // tilt oscillation range
+
+                // Initial Y rotation offset so beams in same cell fan out
+                pivot.rotation.y = (b / beamCount) * Math.PI * 2;
+                pivot.rotation.z = baseZ;
+
+                pivot.renderOrder = 998;
+                scene.add(pivot);
+
+                this._laserBeams.push({
+                    mesh: beamMesh,
+                    pivot,
+                    speedY,
+                    speedZ,
+                    baseZ,
+                    swingZ
+                });
+            }
         }
     }
 
