@@ -3,22 +3,26 @@
 build_atlas.py — Download 1000 SLIME PNGs from IPFS and pack into sprite atlases.
 
 Art atlas:
-  - Tile size: 128x128 (downscaled from 2500x2500 originals)
-  - Atlas size: 4096x4096 (32x32 grid = 1024 slots, 1000 used)
-  - Sheets: 1
-  - Format: JPEG quality 85
+  - Cell size: 512x512 (16px edge bleed; inner tile content 480x480)
+  - Atlas size: 4096x4096 (8x8 grid = 64 slots per sheet, ~16 sheets for 1000)
+  - Output: JPEG (q92) fallback + KTX2 UASTC w/ baked mipmaps (preferred)
+
+The bleed extrudes each tile's edge pixels into a 16px gutter so mipmap
+generation doesn't blend across tile boundaries on the GPU.
 
 Nameplate atlas:
-  - Cell size: 256x40
-  - Atlas width: 4096 (16 nameplates per row)
-  - Atlas height: 2560 (63 rows for 1000 plates)
-  - Sheets: 1
-  - Format: PNG (text needs sharp edges)
+  - Cell size: 128x24
+  - Atlas width: 2048 (16 nameplates per row)
+  - Output: PNG (text needs sharp edges) + KTX2 UASTC w/ mipmaps
 
 Outputs:
-  - assets/atlas_0.jpg     — art atlas
-  - assets/plates_0.png    — nameplate atlas
+  - assets/atlas_N.jpg     (fallback)
+  - assets/atlas_N.ktx2    (preferred — UASTC + mipmaps)
+  - assets/plates_0.png    (fallback)
+  - assets/plates_0.ktx2   (preferred)
   - assets/atlas_manifest.json
+
+KTX2 encoding requires toktx (looked up at tools/ktx-bin/toktx.exe).
 
 Usage:
   pip install Pillow requests
@@ -27,6 +31,7 @@ Usage:
 
 import json
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -43,16 +48,22 @@ except ImportError:
     sys.exit("requests not installed. Run: pip install requests")
 
 # --- Art atlas config ---
-TILE_SIZE = 256
-GRID_SIZE = 16          # 16x16 = 256 slots per atlas
-ATLAS_SIZE = TILE_SIZE * GRID_SIZE  # 4096
-JPEG_QUALITY = 85
-MAX_TILES = 1000        # all SLIME tiles (4 sheets × 256, last partial)
+CELL_SIZE = 512                       # full cell size in atlas (includes bleed)
+BLEED = 16                            # replicated edge-pixel gutter per cell side
+INNER_TILE = CELL_SIZE - 2 * BLEED    # 480 — actual painted tile area
+GRID_SIZE = 8                         # 8x8 = 64 slots per atlas sheet
+ATLAS_SIZE = CELL_SIZE * GRID_SIZE    # 4096
+JPEG_QUALITY = 92
+MAX_TILES = 1000
+
+# --- Per-painting hires (texture-streaming) config ---
+HIRES_SIZE = 2048                     # individual KTX2 per painting; ~1.3 MB each
+HIRES_WORKERS = 8                     # parallel toktx encodes
 
 # --- Nameplate atlas config ---
 PLATE_W = 128
 PLATE_H = 24
-PLATE_COLS = 16         # 16 nameplates per row (16 * 128 = 2048)
+PLATE_COLS = 16
 PLATE_ATLAS_W = PLATE_COLS * PLATE_W  # 2048
 
 # --- Download config ---
@@ -63,7 +74,9 @@ TIMEOUT = 30
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 URLS_FILE = PROJECT_ROOT / "tools" / "slime_urls.txt"
 ASSETS_DIR = PROJECT_ROOT / "assets"
+HIRES_DIR = ASSETS_DIR / "hires"
 CACHE_DIR = PROJECT_ROOT / "tools" / ".download_cache"
+TOKTX_EXE = PROJECT_ROOT / "tools" / "ktx-bin" / "toktx.exe"
 
 
 def extract_urls():
@@ -110,16 +123,42 @@ def download_image(label, url, cache_dir):
             if attempt < RETRY_COUNT - 1:
                 time.sleep(2 ** attempt)
             else:
-                print(f"  FAILED: {label} — {e}")
+                print(f"  FAILED: {label} - {e}")
                 return label, None
 
 
+def paste_with_bleed(atlas, tile, slot_x, slot_y):
+    """Paste an INNER_TILE-sized tile at slot+(BLEED,BLEED), then extrude its
+    edge rows/columns into the BLEED-wide gutter so mipmap generation can't
+    pull pixels from neighboring tiles."""
+    inner_x = slot_x + BLEED
+    inner_y = slot_y + BLEED
+    atlas.paste(tile, (inner_x, inner_y))
+
+    w, h = tile.size
+
+    top = tile.crop((0, 0, w, 1)).resize((w, BLEED), Image.NEAREST)
+    bottom = tile.crop((0, h - 1, w, h)).resize((w, BLEED), Image.NEAREST)
+    left = tile.crop((0, 0, 1, h)).resize((BLEED, h), Image.NEAREST)
+    right = tile.crop((w - 1, 0, w, h)).resize((BLEED, h), Image.NEAREST)
+    atlas.paste(top, (inner_x, slot_y))
+    atlas.paste(bottom, (inner_x, inner_y + h))
+    atlas.paste(left, (slot_x, inner_y))
+    atlas.paste(right, (inner_x + w, inner_y))
+
+    # Corners — solid blocks of corner pixel color
+    tl = tile.getpixel((0, 0))
+    tr = tile.getpixel((w - 1, 0))
+    bl = tile.getpixel((0, h - 1))
+    br = tile.getpixel((w - 1, h - 1))
+    atlas.paste(Image.new("RGB", (BLEED, BLEED), tl), (slot_x, slot_y))
+    atlas.paste(Image.new("RGB", (BLEED, BLEED), tr), (inner_x + w, slot_y))
+    atlas.paste(Image.new("RGB", (BLEED, BLEED), bl), (slot_x, inner_y + h))
+    atlas.paste(Image.new("RGB", (BLEED, BLEED), br), (inner_x + w, inner_y + h))
+
+
 def build_art_atlases(tiles):
-    """
-    Pack art tiles into atlas sheets (GRID_SIZE x GRID_SIZE each).
-    tiles: list of (label, PIL.Image) — already resized to TILE_SIZE.
-    Returns list of (atlas_image, entries) per sheet.
-    """
+    """Pack tiles (each pre-resized to INNER_TILE) into atlas sheets with bleed."""
     slots_per_sheet = GRID_SIZE * GRID_SIZE
     atlases = []
     tile_idx = 0
@@ -134,9 +173,9 @@ def build_art_atlases(tiles):
             label, img = tiles[tile_idx]
             col = slot % GRID_SIZE
             row = slot // GRID_SIZE
-            x = col * TILE_SIZE
-            y = (GRID_SIZE - 1 - row) * TILE_SIZE
-            atlas_img.paste(img, (x, y))
+            slot_x = col * CELL_SIZE
+            slot_y = (GRID_SIZE - 1 - row) * CELL_SIZE
+            paste_with_bleed(atlas_img, img, slot_x, slot_y)
             entries.append({"label": label, "atlas": len(atlases), "col": col, "row": row})
             tile_idx += 1
 
@@ -146,10 +185,7 @@ def build_art_atlases(tiles):
 
 
 def build_nameplate_atlas(labels):
-    """
-    Render all nameplate labels into a single atlas PNG.
-    Returns (atlas_image, plate_rows, plate_cols, dict of {label: {col, row}}).
-    """
+    """Render all nameplate labels into a single atlas PNG."""
     count = len(labels)
     rows_needed = (count + PLATE_COLS - 1) // PLATE_COLS
     atlas_h = rows_needed * PLATE_H
@@ -157,7 +193,6 @@ def build_nameplate_atlas(labels):
     atlas_img = Image.new("RGBA", (PLATE_ATLAS_W, atlas_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(atlas_img)
 
-    # Use a monospace font — try common system fonts, fall back to default
     font = None
     for font_name in ["cour.ttf", "courbd.ttf", "consola.ttf", "consolab.ttf",
                        "DejaVuSansMono-Bold.ttf", "LiberationMono-Bold.ttf"]:
@@ -176,9 +211,7 @@ def build_nameplate_atlas(labels):
         x = col * PLATE_W
         y = (rows_needed - 1 - row) * PLATE_H
 
-        # Background
         draw.rectangle([x, y, x + PLATE_W - 1, y + PLATE_H - 1], fill=(26, 16, 8, 255))
-        # Text centered
         bbox = draw.textbbox((0, 0), label, font=font)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
@@ -191,6 +224,56 @@ def build_nameplate_atlas(labels):
     return atlas_img, rows_needed, entries
 
 
+def hires_name(label):
+    """'SLIME #42' -> 'slime_0042' (zero-padded for sortability)."""
+    m = re.search(r'(\d+)', label)
+    if m:
+        return f"slime_{int(m.group(1)):04d}"
+    return re.sub(r'[^\w]', '_', label.lower())
+
+
+def build_hires_one(label, src_img):
+    """Resize source to HIRES_SIZE, write PNG, encode to KTX2, delete PNG.
+    Returns (label, relative_path_or_None)."""
+    if src_img is None:
+        return label, None
+    safe = hires_name(label)
+    png_path = HIRES_DIR / f"{safe}.png"
+    ktx2_path = HIRES_DIR / f"{safe}.ktx2"
+    resized = src_img.resize((HIRES_SIZE, HIRES_SIZE), Image.LANCZOS)
+    resized.save(str(png_path), "PNG")
+    success = encode_ktx2(png_path, ktx2_path)
+    png_path.unlink(missing_ok=True)
+    if success:
+        return label, f"hires/{safe}.ktx2"
+    return label, None
+
+
+def encode_ktx2(input_path, output_path):
+    """Convert PNG/JPG to KTX2 with UASTC + baked mipmaps. Returns True on success."""
+    if not TOKTX_EXE.exists():
+        return False
+    cmd = [
+        str(TOKTX_EXE),
+        "--t2",
+        "--genmipmap",
+        # three.js KTX2Loader can't flip block-compressed textures on upload,
+        # so the file must already be in bottom-left origin to render upright.
+        "--lower_left_maps_to_s0t0",
+        "--encode", "uastc",
+        "--uastc_quality", "2",
+        "--zcmp", "18",
+        str(output_path),
+        str(input_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"  toktx FAILED for {input_path.name}: {e.stderr.decode(errors='replace')}")
+        return False
+
+
 def main():
     ASSETS_DIR.mkdir(exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -199,49 +282,64 @@ def main():
     url_list = extract_urls()[:MAX_TILES]
     print(f"Using {len(url_list)} tiles (capped at {MAX_TILES})")
 
-    # 2. Download all images in parallel
+    # 2. Download in parallel
     print(f"Downloading {len(url_list)} images (cached in {CACHE_DIR})...")
     downloaded = [None] * len(url_list)
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        futures = {}
-        for i, (label, url) in enumerate(url_list):
-            fut = pool.submit(download_image, label, url, CACHE_DIR)
-            futures[fut] = i
-
+        futures = {pool.submit(download_image, label, url, CACHE_DIR): i
+                   for i, (label, url) in enumerate(url_list)}
         done_count = 0
         for fut in as_completed(futures):
             idx = futures[fut]
-            label, img = fut.result()
-            if img is not None:
-                img = img.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
-                downloaded[idx] = (label, img)
+            label, src_img = fut.result()
+            if src_img is not None:
+                atlas_tile = src_img.resize((INNER_TILE, INNER_TILE), Image.LANCZOS)
+                downloaded[idx] = (label, atlas_tile, src_img)
             else:
-                placeholder = Image.new("RGB", (TILE_SIZE, TILE_SIZE), (26, 26, 46))
-                downloaded[idx] = (label, placeholder)
+                placeholder = Image.new("RGB", (INNER_TILE, INNER_TILE), (26, 26, 46))
+                downloaded[idx] = (label, placeholder, None)
             done_count += 1
             if done_count % 50 == 0 or done_count == len(url_list):
                 print(f"  {done_count}/{len(url_list)} downloaded")
 
-    tiles = [t for t in downloaded if t is not None]
-    print(f"Packing {len(tiles)} tiles into art atlas...")
+    tiles = [(label, atlas_tile) for label, atlas_tile, _ in downloaded if atlas_tile is not None]
+    print(f"Packing {len(tiles)} tiles into art atlases "
+          f"({CELL_SIZE}px cells, {BLEED}px bleed, {INNER_TILE}px content)...")
 
-    # 3. Build art atlases (multiple sheets at 256px tiles)
+    # 3. Build art atlases
     art_atlases = build_art_atlases(tiles)
     all_art_entries = []
+    have_toktx = TOKTX_EXE.exists()
+    if not have_toktx:
+        print(f"  WARNING: {TOKTX_EXE} not found - skipping KTX2 encoding")
+
     for i, (art_img, entries) in enumerate(art_atlases):
-        art_path = ASSETS_DIR / f"atlas_{i}.jpg"
-        art_img.save(str(art_path), "JPEG", quality=JPEG_QUALITY)
-        size_mb = art_path.stat().st_size / (1024 * 1024)
-        print(f"  {art_path.name}: {size_mb:.1f} MB ({len(entries)} tiles)")
+        # JPEG fallback
+        jpg_path = ASSETS_DIR / f"atlas_{i}.jpg"
+        art_img.save(str(jpg_path), "JPEG", quality=JPEG_QUALITY)
+        size_mb = jpg_path.stat().st_size / (1024 * 1024)
+        print(f"  {jpg_path.name}: {size_mb:.1f} MB ({len(entries)} tiles)")
+
+        # KTX2 (preferred) — encode from a temporary lossless PNG
+        if have_toktx:
+            png_tmp = ASSETS_DIR / f"atlas_{i}.png"
+            art_img.save(str(png_tmp), "PNG")
+            ktx2_path = ASSETS_DIR / f"atlas_{i}.ktx2"
+            if encode_ktx2(png_tmp, ktx2_path):
+                ktx2_mb = ktx2_path.stat().st_size / (1024 * 1024)
+                print(f"  {ktx2_path.name}: {ktx2_mb:.1f} MB (UASTC + mipmaps)")
+            png_tmp.unlink(missing_ok=True)
+
         all_art_entries.extend(entries)
 
     # Remove stale atlas sheets beyond what we generated
-    for i in range(len(art_atlases), 20):
-        old = ASSETS_DIR / f"atlas_{i}.jpg"
-        if old.exists():
-            old.unlink()
-            print(f"  Removed old {old.name}")
+    for i in range(len(art_atlases), 32):
+        for ext in ('jpg', 'ktx2', 'png'):
+            old = ASSETS_DIR / f"atlas_{i}.{ext}"
+            if old.exists():
+                old.unlink()
+                print(f"  Removed old {old.name}")
 
     # 4. Build nameplate atlas
     labels = [entry["label"] for entry in all_art_entries]
@@ -252,9 +350,51 @@ def main():
     size_kb = plate_path.stat().st_size / 1024
     print(f"  {plate_path.name}: {size_kb:.0f} KB ({len(plate_entries)} nameplates, {PLATE_COLS}x{plate_rows})")
 
-    # 5. Generate manifest
+    if have_toktx:
+        plate_ktx2 = ASSETS_DIR / "plates_0.ktx2"
+        if encode_ktx2(plate_path, plate_ktx2):
+            ktx2_kb = plate_ktx2.stat().st_size / 1024
+            print(f"  {plate_ktx2.name}: {ktx2_kb:.0f} KB (UASTC + mipmaps)")
+
+    # 5. Per-painting hires textures (lazy-loaded by gallery.js when player is close)
+    hires_files = {}
+    if have_toktx:
+        HIRES_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"Generating {len(downloaded)} hires textures ({HIRES_SIZE}px, {HIRES_WORKERS} workers)...")
+
+        with ThreadPoolExecutor(max_workers=HIRES_WORKERS) as pool:
+            futs = {pool.submit(build_hires_one, label, src): label
+                    for label, _, src in downloaded}
+            done = 0
+            for fut in as_completed(futs):
+                label, rel_path = fut.result()
+                if rel_path:
+                    hires_files[label] = rel_path
+                done += 1
+                if done % 50 == 0 or done == len(downloaded):
+                    print(f"  {done}/{len(downloaded)} encoded")
+
+        # Drop stale files from previous runs
+        keep = {Path(p).name for p in hires_files.values()}
+        removed = 0
+        for f in HIRES_DIR.glob("*.ktx2"):
+            if f.name not in keep:
+                f.unlink()
+                removed += 1
+        if removed:
+            print(f"  Removed {removed} stale hires files")
+
+        total_mb = sum((HIRES_DIR / Path(p).name).stat().st_size for p in hires_files.values()) / (1024 * 1024)
+        print(f"  {len(hires_files)} hires files written ({total_mb:.0f} MB total on disk)")
+    else:
+        print(f"Skipping hires generation (toktx not found)")
+
+    # 6. Manifest — uses entry["atlas"] (was hardcoded to 0, dropping 75% of art)
     manifest = {
-        "tileSize": TILE_SIZE,
+        "cellSize": CELL_SIZE,
+        "tileSize": CELL_SIZE,           # legacy alias
+        "innerTileSize": INNER_TILE,
+        "bleed": BLEED,
         "gridSize": GRID_SIZE,
         "atlasSize": ATLAS_SIZE,
         "atlasCount": len(art_atlases),
@@ -273,11 +413,12 @@ def main():
         label = entry["label"]
         plate = plate_entries[label]
         manifest["tiles"][label] = {
-            "atlas": 0,
+            "atlas": entry["atlas"],
             "col": entry["col"],
             "row": entry["row"],
             "plateCol": plate["col"],
             "plateRow": plate["row"],
+            "hiresFile": hires_files.get(label),
         }
 
     manifest_path = ASSETS_DIR / "atlas_manifest.json"

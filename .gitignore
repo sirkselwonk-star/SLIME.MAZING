@@ -1,2 +1,4 @@
 tools/.download_cache/
 tools/ktx-bin/
+assets/hires/
+__pycache__/

@@ -6,15 +6,15 @@ import {
     svgPathToPolygon, buildGrid, generateMaze,
     buildMazeGeometry, getWallColliders
 } from './maze.js';
-import { ShipControls } from './controls.js?v=6';
+import { ShipControls } from './controls.js?v=9';
 import { HUD } from './hud.js';
 import { GameState } from './game.js';
 import { WeaponSystem } from './weapons.js';
 import { EnemyManager } from './enemies.js';
 import { SoundtrackManager } from './audio.js';
-import { GalleryManager } from './gallery.js';
+import { GalleryManager } from './gallery.js?v=9';
 import { EyesBleedManager } from './eyesbleed.js';
-import { TouchControlsManager } from './touch-controls.js?v=6';
+import { TouchControlsManager } from './touch-controls.js?v=9';
 
 window.THREE = THREE;
 
@@ -261,7 +261,7 @@ function buildLevel() {
         const loadingText = loadingEl?.querySelector('p');
         gallery.placeArtwork(mazeData.wallMeshes, THREE, renderer, (loaded, total) => {
             if (loadingText) loadingText.textContent = `LOADING GALLERY: ${loaded} / ${total}`;
-        }).then(() => {
+        }, scene).then(() => {
             if (loadingEl) loadingEl.style.display = 'none';
             gallery.cacheWorldPositions();
             gameState.slimesTotal = gallery.paintings.length;
@@ -457,6 +457,9 @@ function animate() {
 
         // Check SLIME painting proximity
         gameState.checkPaintingProximity(camera.position, gallery?.paintings);
+
+        // Distance-cull plates/art + sync frame instances with wall destruction
+        if (gallery) gallery.update(camera);
 
         // Update visited cells for minimap
         const gridPos = getPlayerGridPos();
