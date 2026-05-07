@@ -6,15 +6,15 @@ import {
     svgPathToPolygon, buildGrid, generateMaze,
     buildMazeGeometry, getWallColliders
 } from './maze.js';
-import { ShipControls } from './controls.js?v=9';
+import { ShipControls } from './controls.js?v=10';
 import { HUD } from './hud.js';
 import { GameState } from './game.js';
 import { WeaponSystem } from './weapons.js';
 import { EnemyManager } from './enemies.js';
 import { SoundtrackManager } from './audio.js';
-import { GalleryManager } from './gallery.js?v=9';
+import { GalleryManager } from './gallery.js?v=10';
 import { EyesBleedManager } from './eyesbleed.js';
-import { TouchControlsManager } from './touch-controls.js?v=9';
+import { TouchControlsManager } from './touch-controls.js?v=10';
 
 window.THREE = THREE;
 

@@ -209,8 +209,10 @@ export class GalleryManager {
                 const label = shuffledTiles[i];
                 const tile = manifest.tiles[label];
 
-                // Direction-based local placement (relative to wall center)
-                let lx = 0, ly = 0, lz = 0, yRot = 0;
+                // Direction-based local placement (relative to wall center).
+                // ly=0.1 raises center from wall midpoint (1.5m) to 1.6m so
+                // paintings sit slightly above eye height — hero framing.
+                let lx = 0, ly = 0.1, lz = 0, yRot = 0;
                 if (dir === 'N') { lz = 0.16; }
                 else if (dir === 'S') { lz = -0.16; yRot = Math.PI; }
                 else if (dir === 'W') { lx = 0.16; yRot = Math.PI / 2; }
