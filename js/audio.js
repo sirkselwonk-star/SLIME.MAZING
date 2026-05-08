@@ -740,6 +740,25 @@ export class SoundtrackManager {
         }
     }
 
+    /**
+     * After all `sources` finish (Web Audio fires `onended` on each), disconnect
+     * every node in `nodes` so the per-note graph can be garbage-collected.
+     * Without this, transient nodes stay referenced via their connection to the
+     * still-live destination bus and accumulate forever — the scheduler runs at
+     * 40Hz, so the leak is large and steady (visible even while paused).
+     */
+    _disposeWhenDone(sources, nodes) {
+        let pending = sources.length;
+        const cleanup = () => {
+            if (--pending === 0) {
+                for (const n of nodes) {
+                    try { n.disconnect(); } catch (e) { /* already disconnected */ }
+                }
+            }
+        };
+        for (const s of sources) s.onended = cleanup;
+    }
+
     // ========== Percussion (velocity-scaled) ==========
 
     _playKick(time, vel) {
@@ -771,6 +790,7 @@ export class SoundtrackManager {
         osc.stop(time + 0.25);
         sub.start(time);
         sub.stop(time + 0.18);
+        this._disposeWhenDone([osc, sub], [osc, gain, sub, subGain]);
     }
 
     _playClank(time, vel) {
@@ -807,6 +827,7 @@ export class SoundtrackManager {
         noise.stop(time + 0.08);
         ring.start(time);
         ring.stop(time + 0.12);
+        this._disposeWhenDone([noise, ring], [noise, bp, noiseGain, ring, ringGain]);
     }
 
     _playHihat(time, vel) {
@@ -829,6 +850,7 @@ export class SoundtrackManager {
 
         noise.start(time);
         noise.stop(time + 0.04);
+        this._disposeWhenDone([noise], [noise, hp, gain]);
     }
 
     _playOpenHat(time, vel) {
@@ -851,6 +873,7 @@ export class SoundtrackManager {
 
         noise.start(time);
         noise.stop(time + 0.18);
+        this._disposeWhenDone([noise], [noise, hp, gain]);
     }
 
     _playMetallic(time, vel) {
@@ -870,6 +893,7 @@ export class SoundtrackManager {
 
             osc.start(time);
             osc.stop(time + 0.18);
+            this._disposeWhenDone([osc], [osc, gain]);
         }
     }
 
@@ -918,6 +942,7 @@ export class SoundtrackManager {
 
         osc.start(time);
         osc.stop(time + 0.25);
+        this._disposeWhenDone([osc], [osc, filter, gain]);
     }
 
     _playScreamNote(time, freq, prevFreq, accented) {
@@ -976,6 +1001,7 @@ export class SoundtrackManager {
         lfo.stop(time + 0.32);
         osc.start(time);
         osc.stop(time + 0.32);
+        this._disposeWhenDone([osc, lfo], [osc, lfo, lfoDepth, filter, crunch, gain]);
     }
 
     _playBassWahNote(time, freq, prevFreq, accented) {
@@ -1055,6 +1081,10 @@ export class SoundtrackManager {
         osc.stop(time + 0.38);
         sub.start(time);
         sub.stop(time + 0.38);
+        this._disposeWhenDone(
+            [osc, sub, wahLFO],
+            [osc, sub, subGain, drive, wah, wahLFO, wahLFODepth, gain]
+        );
     }
 
     _playPhaserNote(time, freq, prevFreq, accented) {
@@ -1079,6 +1109,8 @@ export class SoundtrackManager {
 
         // 6-stage allpass chain — staggered base frequencies
         const allpassFreqs = [800, 1100, 1400, 1700, 2000, 2300];
+        const apNodes = [];
+        const lfoDepthNodes = [];
         let prev = osc;
         for (const baseFreq of allpassFreqs) {
             const ap = ctx.createBiquadFilter();
@@ -1091,6 +1123,8 @@ export class SoundtrackManager {
             lfoDepth.connect(ap.frequency);
             prev.connect(ap);
             prev = ap;
+            apNodes.push(ap);
+            lfoDepthNodes.push(lfoDepth);
         }
 
         // Dry/wet mix merged into output
@@ -1121,6 +1155,10 @@ export class SoundtrackManager {
         lfo.stop(time + 0.4);
         osc.start(time);
         osc.stop(time + 0.4);
+        this._disposeWhenDone(
+            [osc, lfo],
+            [osc, lfo, ...apNodes, ...lfoDepthNodes, dryGain, wetGain, output]
+        );
     }
 
     _playSirenNote(time, freq, prevFreq, accented) {
@@ -1176,6 +1214,10 @@ export class SoundtrackManager {
         carrier.stop(time + 0.3);
         modulator.start(time);
         modulator.stop(time + 0.3);
+        this._disposeWhenDone(
+            [carrier, modulator],
+            [carrier, modulator, modGain, bp, gain]
+        );
     }
 
     // ========== Continuous layers ==========
