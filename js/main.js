@@ -291,7 +291,12 @@ let cardSlabsThisLevel = [];
 // Target physical height; bottom rests on the floor.
 const CARD_SLAB_HEIGHT = 2.0;
 
+// Disabled until we decide how to use the slab. Flip to true to re-enable
+// loading + placement at start/exit/dead-ends and the per-frame animation.
+const CARD_SLABS_ENABLED = false;
+
 function loadCardSlab() {
+    if (!CARD_SLABS_ENABLED) return Promise.reject(new Error('card slabs disabled'));
     if (cardSlabTemplate) return Promise.resolve(cardSlabTemplate);
     return new Promise((resolve, reject) => {
         new GLTFLoader().load(
@@ -320,6 +325,7 @@ function loadCardSlab() {
 }
 
 function placeCardSlabs() {
+    if (!CARD_SLABS_ENABLED) return;
     loadCardSlab().then(template => {
         if (!mazeData || !gridData) return;
         const { grid, rows, cols } = gridData;
