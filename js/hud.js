@@ -116,7 +116,7 @@ export class HUD {
     }
 
     _drawMinimap(ctx, state, w, h) {
-        const { grid, rows, cols, playerGridPos, startPos, exitPos, visitedCells } = state;
+        const { grid, rows, cols, polygon, playerGridPos, startPos, exitPos, visitedCells } = state;
         if (!grid) return;
 
         const mapSize = Math.min(180, w * 0.2);
@@ -182,6 +182,22 @@ export class HUD {
                     ctx.stroke();
                 }
             }
+        }
+
+        // SLIME silhouette outline (polygon in grid units)
+        if (polygon && polygon.length > 1) {
+            ctx.strokeStyle = '#4ade80';
+            ctx.lineWidth = 1.5;
+            ctx.shadowColor = '#4ade80';
+            ctx.shadowBlur = 4;
+            ctx.beginPath();
+            ctx.moveTo(mapX + polygon[0].x * cellW, mapY + polygon[0].y * cellH);
+            for (let i = 1; i < polygon.length; i++) {
+                ctx.lineTo(mapX + polygon[i].x * cellW, mapY + polygon[i].y * cellH);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
         }
 
         // Start marker
@@ -416,11 +432,11 @@ export class HUD {
 
         // Gun ammo
         ctx.fillStyle = '#4ade80';
-        ctx.fillText(`GUN: ${gunAmmo}`, x, y);
+        ctx.fillText('GUN: ∞', x, y);
 
         // Rocket ammo
         ctx.fillStyle = '#fb923c';
-        ctx.fillText(`RKT: ${rocketAmmo}`, x, y + 16);
+        ctx.fillText('RKT: ∞', x, y + 16);
     }
 
     _drawDamageFlash(ctx, state, w, h) {

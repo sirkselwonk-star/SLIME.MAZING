@@ -178,11 +178,11 @@ const WAVESYNTH_FRAGMENT = `
 
 // Effect type definitions for the 5 cubic-space particle effects
 const CUBIC_EFFECTS = [
-    { name: 'glow',      vert: GLOW_VERTEX,       frag: GLOW_FRAGMENT,       perCell: 8,  useZoneColor: true  },
-    { name: 'fire',      vert: FIRE_VERTEX,        frag: FIRE_FRAGMENT,       perCell: 12, useZoneColor: false },
-    { name: 'lightning',  vert: LIGHTNING_VERTEX,    frag: LIGHTNING_FRAGMENT,   perCell: 10, useZoneColor: false },
-    { name: 'snow',      vert: SNOW_VERTEX,        frag: SNOW_FRAGMENT,       perCell: 14, useZoneColor: false },
-    { name: 'wavesynth', vert: WAVESYNTH_VERTEX,   frag: WAVESYNTH_FRAGMENT,  perCell: 20, useZoneColor: false },
+    { name: 'glow',      vert: GLOW_VERTEX,       frag: GLOW_FRAGMENT,       perCell: 4,  useZoneColor: true  },
+    { name: 'fire',      vert: FIRE_VERTEX,        frag: FIRE_FRAGMENT,       perCell: 6,  useZoneColor: false },
+    { name: 'lightning',  vert: LIGHTNING_VERTEX,    frag: LIGHTNING_FRAGMENT,   perCell: 5,  useZoneColor: false },
+    { name: 'snow',      vert: SNOW_VERTEX,        frag: SNOW_FRAGMENT,       perCell: 7,  useZoneColor: false },
+    { name: 'wavesynth', vert: WAVESYNTH_VERTEX,   frag: WAVESYNTH_FRAGMENT,  perCell: 10, useZoneColor: false },
 ];
 
 // HSL → RGB helper for zone-based particle coloring
@@ -658,6 +658,18 @@ export class EyesBleedManager {
             0x00ffff, 0xffff00, 0xff8000,
         ];
 
+        // Shared materials per color — was creating one per beam (~1000 mats);
+        // now exactly LASER_COLORS.length total.
+        const colorMats = LASER_COLORS.map(color => new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        }));
+        this._laserMaterials.push(...colorMats);
+
         // Beam geometries for different mount types
         const floorGeo = new THREE.CylinderGeometry(0.02, 0.02, 5, 4, 1);
         floorGeo.translate(0, 2.5, 0); // pivot at bottom
@@ -678,7 +690,7 @@ export class EyesBleedManager {
             const row = parseInt(parts[0]);
             const col = parseInt(parts[1]);
 
-            if ((row * 11 + col * 23 + 53) % 4 !== 0) continue;
+            if ((row * 11 + col * 23 + 53) % 8 !== 0) continue;
 
             const pos = mesh.position;
             const zoneR = Math.floor(row / 6);
@@ -692,15 +704,7 @@ export class EyesBleedManager {
 
             for (let b = 0; b < beamCount; b++) {
                 const colorIdx = (zoneHash + b * 3) % LASER_COLORS.length;
-                const mat = new THREE.MeshBasicMaterial({
-                    color: LASER_COLORS[colorIdx],
-                    transparent: true,
-                    opacity: 0.6,
-                    blending: THREE.AdditiveBlending,
-                    depthWrite: false,
-                    side: THREE.DoubleSide
-                });
-                this._laserMaterials.push(mat);
+                const mat = colorMats[colorIdx];
 
                 const seed = zoneHash * 17 + b * 131;
                 const pivot = new THREE.Group();

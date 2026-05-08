@@ -34,6 +34,16 @@ export class WeaponSystem {
         this.muzzleFlash = new THREE.PointLight(0x4ade80, 0, 8);
         this.scene.add(this.muzzleFlash);
         this.muzzleTimer = 0;
+
+        // Pre-allocated explosion light pool. Adding/removing lights at
+        // runtime forces three.js to recompile every lit material in the
+        // scene; pooling keeps the count constant.
+        this._explosionLights = [];
+        for (let i = 0; i < 3; i++) {
+            const light = new THREE.PointLight(0xff6600, 0, 10);
+            this.scene.add(light);
+            this._explosionLights.push(light);
+        }
     }
 
     fire(type, camera) {
@@ -54,8 +64,7 @@ export class WeaponSystem {
             this.muzzleTimer = 0.05;
         } else {
             mesh = new THREE.Mesh(this.rocketGeo, this.rocketMat.clone());
-            const glow = new THREE.PointLight(0xfb923c, 2, 6);
-            mesh.add(glow);
+            // No per-rocket PointLight; same recompile concern as enemy lights.
             speed = 20;
             lifetime = 3;
             damage = 5;
@@ -169,7 +178,9 @@ export class WeaponSystem {
             fx.age += dt;
             if (fx.age >= fx.lifetime) {
                 this.scene.remove(fx.mesh);
-                if (fx.light) this.scene.remove(fx.light);
+                // Pooled light: zero intensity to free the slot, but keep
+                // it in the scene so the light count stays constant.
+                if (fx.light) fx.light.intensity = 0;
                 this.effects.splice(i, 1);
                 continue;
             }
@@ -185,6 +196,9 @@ export class WeaponSystem {
         for (let i = colliders.length - 1; i >= 0; i--) {
             const box = colliders[i];
             if (!box.gridRef) continue;
+            // Perimeter walls are indestructible — keeps the player inside
+            // the maze (escaping lets all paintings render at once).
+            if (box.isPerimeter) continue;
             const cx = (box.minX + box.maxX) / 2;
             const cz = (box.minZ + box.maxZ) / 2;
             const dx = pos.x - cx;
@@ -251,9 +265,16 @@ export class WeaponSystem {
         mesh.position.copy(pos);
         this.scene.add(mesh);
 
-        const light = new THREE.PointLight(0xff6600, 8, 10);
-        light.position.copy(pos);
-        this.scene.add(light);
+        // Take a pooled light slot if free; if all in use, mesh still flashes.
+        let light = null;
+        for (const slot of this._explosionLights) {
+            if (slot.intensity <= 0) {
+                slot.position.copy(pos);
+                slot.intensity = 8;
+                light = slot;
+                break;
+            }
+        }
 
         this.effects.push({ mesh, age: 0, lifetime: 0.4, light, startIntensity: 8 });
 
@@ -274,9 +295,11 @@ export class WeaponSystem {
         this.projectiles = [];
         for (const fx of this.effects) {
             this.scene.remove(fx.mesh);
-            if (fx.light) this.scene.remove(fx.light);
+            if (fx.light) fx.light.intensity = 0;
         }
         this.effects = [];
         if (this.muzzleFlash) this.scene.remove(this.muzzleFlash);
+        for (const light of this._explosionLights || []) this.scene.remove(light);
+        this._explosionLights = [];
     }
 }

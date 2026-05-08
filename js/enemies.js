@@ -43,18 +43,18 @@ export class EnemyManager {
         const THREE = this.THREE;
 
         const geo = new THREE.IcosahedronGeometry(0.35, 1);
+        // No per-enemy PointLight: removing/adding lights at death time
+        // forces three.js to recompile every lit material in the scene
+        // (shader's light-array size changes). Emissive carries the look.
         const mat = new THREE.MeshStandardMaterial({
             color: 0xcc3366,
             emissive: 0xff2255,
-            emissiveIntensity: 0.6,
+            emissiveIntensity: 1.5,
             roughness: 0.4,
             metalness: 0.7
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, 1.2, z);
-
-        const glow = new THREE.PointLight(0xff2255, 1.5, 5);
-        mesh.add(glow);
         this.scene.add(mesh);
 
         // Pick initial movement direction from open walls

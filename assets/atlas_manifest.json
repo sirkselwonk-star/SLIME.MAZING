@@ -7,12 +7,12 @@
   "atlasSize": 4096,
   "atlasCount": 16,
   "plate": {
-    "cellWidth": 128,
-    "cellHeight": 24,
+    "cellWidth": 256,
+    "cellHeight": 48,
     "cols": 16,
     "rows": 63,
-    "atlasWidth": 2048,
-    "atlasHeight": 1512
+    "atlasWidth": 4096,
+    "atlasHeight": 3024
   },
   "tiles": {
     "SLIME #1": {

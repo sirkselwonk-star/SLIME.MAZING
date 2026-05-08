@@ -18,7 +18,7 @@ function ensureSharedResources(THREE) {
         sharedArtGeo = new THREE.PlaneGeometry(1.4, 1.4);
         sharedPlateGeo = new THREE.PlaneGeometry(0.9, 0.14);
         sharedFrameMat = new THREE.MeshStandardMaterial({
-            color: 0x1a1008, roughness: 0.8, metalness: 0.2, side: THREE.DoubleSide
+            color: 0x1a1008, roughness: 0.8, metalness: 0.2
         });
     }
 }
@@ -180,7 +180,7 @@ export class GalleryManager {
             this._hiresCache = new Map();          // label -> { texture, lastAccess }
             this._hiresLoading = new Set();        // labels currently being fetched
             this._hiresActiveLabels = new Set();   // labels currently swapped into a material
-            this._hiresCacheMax = 32;
+            this._hiresCacheMax = 16;
             this._maxAniso = renderer.capabilities.getMaxAnisotropy();
             if (ktx2Supported !== false) {
                 this._hiresLoader = new KTX2Loader()
@@ -241,8 +241,7 @@ export class GalleryManager {
                 const artMat = new THREE.MeshStandardMaterial({
                     map: artTex,
                     roughness: 0.5,
-                    metalness: 0.0,
-                    side: THREE.DoubleSide
+                    metalness: 0.0
                 });
                 const art = new THREE.Mesh(sharedArtGeo, artMat);
                 art.position.z = 0.01;
@@ -253,7 +252,7 @@ export class GalleryManager {
                 pTex.repeat.set(invPlateCols, invPlateRows);
                 pTex.offset.set(tile.plateCol * invPlateCols, tile.plateRow * invPlateRows);
                 const plateMat = new THREE.MeshBasicMaterial({
-                    map: pTex, side: THREE.DoubleSide, transparent: true
+                    map: pTex, transparent: true
                 });
                 const plate = new THREE.Mesh(sharedPlateGeo, plateMat);
                 plate.position.set(0, -0.92, 0.05);
@@ -284,8 +283,8 @@ export class GalleryManager {
         if (!this.paintings.length || !this.frameMesh) return;
 
         const camPos = camera.position;
-        const PLATE_CULL_SQ = 100;     // 10m
-        const ART_CULL_SQ = 900;       // 30m
+        const PLATE_CULL_SQ = 225;     // 15m
+        const ART_CULL_SQ = 400;       // 20m
         const HIRES_USE_SQ = 25;       // 5m — swap to hires when within
         const HIRES_DROP_SQ = 36;      // 6m — swap back to atlas when beyond (hysteresis)
         const now = performance.now();

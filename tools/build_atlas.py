@@ -26,7 +26,8 @@ KTX2 encoding requires toktx (looked up at tools/ktx-bin/toktx.exe).
 
 Usage:
   pip install Pillow requests
-  python tools/build_atlas.py
+  python tools/build_atlas.py                # full rebuild (~15+ min for hires)
+  python tools/build_atlas.py --plates-only  # rebuild just the nameplate atlas
 """
 
 import json
@@ -61,10 +62,13 @@ HIRES_SIZE = 2048                     # individual KTX2 per painting; ~1.3 MB ea
 HIRES_WORKERS = 8                     # parallel toktx encodes
 
 # --- Nameplate atlas config ---
-PLATE_W = 128
-PLATE_H = 24
+# 256x48 cells (was 128x24) — 4x texel density so the pixel font reads crisply
+# instead of looking like a low-res scale-up at the gallery viewing distance.
+PLATE_W = 256
+PLATE_H = 48
+PLATE_FONT_PT = 32
 PLATE_COLS = 16
-PLATE_ATLAS_W = PLATE_COLS * PLATE_W  # 2048
+PLATE_ATLAS_W = PLATE_COLS * PLATE_W  # 4096
 
 # --- Download config ---
 MAX_WORKERS = 20
@@ -77,6 +81,7 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 HIRES_DIR = ASSETS_DIR / "hires"
 CACHE_DIR = PROJECT_ROOT / "tools" / ".download_cache"
 TOKTX_EXE = PROJECT_ROOT / "tools" / "ktx-bin" / "toktx.exe"
+WHITE_RABBIT_TTF = PROJECT_ROOT / "tools" / "fonts" / "WHITRABT.ttf"
 
 
 def extract_urls():
@@ -193,14 +198,22 @@ def build_nameplate_atlas(labels):
     atlas_img = Image.new("RGBA", (PLATE_ATLAS_W, atlas_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(atlas_img)
 
+    # Prefer White Rabbit (pixel font, looks great at small sizes).
+    # Fall back to system monospace fonts if the local TTF is missing.
     font = None
-    for font_name in ["cour.ttf", "courbd.ttf", "consola.ttf", "consolab.ttf",
-                       "DejaVuSansMono-Bold.ttf", "LiberationMono-Bold.ttf"]:
+    if WHITE_RABBIT_TTF.exists():
         try:
-            font = ImageFont.truetype(font_name, 14)
-            break
+            font = ImageFont.truetype(str(WHITE_RABBIT_TTF), PLATE_FONT_PT)
         except (IOError, OSError):
-            continue
+            pass
+    if font is None:
+        for font_name in ["cour.ttf", "courbd.ttf", "consola.ttf", "consolab.ttf",
+                           "DejaVuSansMono-Bold.ttf", "LiberationMono-Bold.ttf"]:
+            try:
+                font = ImageFont.truetype(font_name, PLATE_FONT_PT - 4)
+                break
+            except (IOError, OSError):
+                continue
     if font is None:
         font = ImageFont.load_default()
 
@@ -274,7 +287,56 @@ def encode_ktx2(input_path, output_path):
         return False
 
 
+def rebuild_plates_only():
+    """Rebuild just the nameplate atlas + plate fields in the manifest. Reuses
+    the existing atlas_manifest.json's tile list, so the art atlas and hires
+    files are left untouched. Run after tweaking PLATE_W/H/FONT_PT."""
+    manifest_path = ASSETS_DIR / "atlas_manifest.json"
+    if not manifest_path.exists():
+        sys.exit(f"--plates-only requires {manifest_path} (run a full build first)")
+
+    existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Preserve original tile order so plateCol/plateRow stay aligned with
+    # whatever ordering the tiles dict has on disk.
+    labels = list(existing["tiles"].keys())
+    print(f"Rebuilding nameplate atlas for {len(labels)} labels "
+          f"({PLATE_W}x{PLATE_H} cells, {PLATE_FONT_PT}pt font)...")
+
+    plate_img, plate_rows, plate_entries = build_nameplate_atlas(labels)
+    plate_path = ASSETS_DIR / "plates_0.png"
+    plate_img.save(str(plate_path), "PNG")
+    size_kb = plate_path.stat().st_size / 1024
+    print(f"  {plate_path.name}: {size_kb:.0f} KB ({len(plate_entries)} nameplates, {PLATE_COLS}x{plate_rows})")
+
+    if TOKTX_EXE.exists():
+        plate_ktx2 = ASSETS_DIR / "plates_0.ktx2"
+        if encode_ktx2(plate_path, plate_ktx2):
+            ktx2_kb = plate_ktx2.stat().st_size / 1024
+            print(f"  {plate_ktx2.name}: {ktx2_kb:.0f} KB (UASTC + mipmaps)")
+
+    existing["plate"] = {
+        "cellWidth": PLATE_W,
+        "cellHeight": PLATE_H,
+        "cols": PLATE_COLS,
+        "rows": plate_rows,
+        "atlasWidth": PLATE_ATLAS_W,
+        "atlasHeight": plate_rows * PLATE_H,
+    }
+    for label in labels:
+        plate = plate_entries[label]
+        existing["tiles"][label]["plateCol"] = plate["col"]
+        existing["tiles"][label]["plateRow"] = plate["row"]
+
+    manifest_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    print(f"  Manifest: {manifest_path.name} updated")
+    print("\nDone! Bump the ASSET_VER in gallery.js so browsers don't serve a cached plate.")
+
+
 def main():
+    if "--plates-only" in sys.argv:
+        rebuild_plates_only()
+        return
+
     ASSETS_DIR.mkdir(exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 

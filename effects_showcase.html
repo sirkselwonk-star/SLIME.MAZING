@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>100 Wall Shader Effects — Three.js Showcase</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e0e0e0;font-family:'Segoe UI',sans-serif}
+h1{text-align:center;padding:20px;font-size:28px;color:#7fdbca;text-shadow:0 0 20px #7fdbca55}
+.cats{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding:0 20px 16px}
+.cat-btn{padding:6px 14px;border:1px solid #333;border-radius:16px;background:#161622;color:#aaa;cursor:pointer;font-size:13px;transition:.2s}
+.cat-btn:hover,.cat-btn.active{background:#7fdbca22;color:#7fdbca;border-color:#7fdbca}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;padding:12px 20px 40px}
+.card{background:#12121e;border-radius:8px;overflow:hidden;cursor:pointer;transition:.2s;border:2px solid transparent}
+.card:hover{border-color:#7fdbca;transform:scale(1.03)}
+.card img{width:100%;aspect-ratio:1;display:block;background:#1a1a2e}
+.card .label{padding:6px 8px;font-size:12px;text-align:center;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .label span{color:#555;font-size:10px}
+#preview{display:none;position:fixed;inset:0;background:#000c;z-index:100;align-items:center;justify-content:center;flex-direction:column}
+#preview.open{display:flex}
+#preview canvas{width:min(70vw,70vh);height:min(70vw,70vh);border-radius:12px;border:2px solid #7fdbca}
+#preview .info{color:#7fdbca;font-size:22px;margin:16px 0 4px;text-align:center}
+#preview .cat-label{color:#666;font-size:14px;margin-bottom:12px}
+#preview .close{position:absolute;top:20px;right:30px;font-size:40px;color:#fff;cursor:pointer;z-index:101}
+#preview .nav{position:absolute;top:50%;font-size:48px;color:#fff8;cursor:pointer;padding:20px;user-select:none}
+#preview .nav:hover{color:#fff}
+#prev-btn{left:10px}
+#next-btn{right:10px}
+#loading{position:fixed;inset:0;background:#0a0a0f;display:flex;align-items:center;justify-content:center;z-index:200;flex-direction:column}
+#loading .bar{width:300px;height:6px;background:#1a1a2e;border-radius:3px;overflow:hidden;margin-top:12px}
+#loading .fill{height:100%;background:#7fdbca;width:0%;transition:width .1s}
+#loading .text{color:#7fdbca;font-size:16px}
+</style>
+</head>
+<body>
+<div id="loading"><div class="text">Rendering effects...</div><div class="bar"><div class="fill" id="loadFill"></div></div></div>
+<h1>100 Wall Shader Effects for Three.js</h1>
+<div class="cats" id="cats"></div>
+<div id="grid"></div>
+<div id="preview">
+  <span class="close" onclick="closePreview()">&times;</span>
+  <span class="nav" id="prev-btn" onclick="navPreview(-1)">&#8249;</span>
+  <span class="nav" id="next-btn" onclick="navPreview(1)">&#8250;</span>
+  <div class="info" id="pName"></div>
+  <div class="cat-label" id="pCat"></div>
+  <canvas id="pCanvas" width="512" height="512"></canvas>
+</div>
+
+<script>
+const NOISE = `
+vec3 mod289v3(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec2 mod289v2(vec2 x){return x-floor(x*(1./289.))*289.;}
+vec3 permute(vec3 x){return mod289v3(((x*34.)+1.)*x);}
+float snoise(vec2 v){
+  const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);
+  vec2 i=floor(v+dot(v,C.yy)),x0=v-i+dot(i,C.xx),i1;
+  i1=(x0.x>x0.y)?vec2(1.,0.):vec2(0.,1.);
+  vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;
+  i=mod289v2(i);
+  vec3 p=permute(permute(i.y+vec3(0.,i1.y,1.))+i.x+vec3(0.,i1.x,1.));
+  vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);
+  m=m*m;m=m*m;
+  vec3 x2=2.*fract(p*C.www)-1.,h=abs(x2)-.5,ox=floor(x2+.5),a0=x2-ox;
+  m*=1.79284291400159-.85373472095314*(a0*a0+h*h);
+  vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;
+  return 130.*dot(m,g);
+}
+float fbm(vec2 p){float f=0.,a=.5;for(int i=0;i<5;i++){f+=a*snoise(p);p*=2.;a*=.5;}return f;}
+float hash21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y);}
+vec2 voronoi(vec2 x){vec2 n=floor(x),f=fract(x);float md=8.;vec2 mr;for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){vec2 g=vec2(float(i),float(j)),o=vec2(hash21(n+g),hash21(n+g+vec2(31,17))),r=g+o-f;float d=dot(r,r);if(d<md){md=d;mr=r;}}return vec2(sqrt(md),0.);}
+`;
+
+const VS = `attribute vec2 p;varying vec2 vUv;void main(){vUv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+
+const effects = [
+// DUNGEON & STONE (0)
+["Rough Stone",0,`vec2 u=vUv*8.;float n=fbm(u*2.);float c=.3+.2*n+.1*vnoise(u*10.);gl_FragColor=vec4(c*.8,c*.7,c*.6,1.);`],
+["Mossy Brick",0,`vec2 u=vUv*vec2(8.,4.);vec2 b=fract(u);float gx=step(.92,b.x),gy=step(.88,b.y);float g=max(gx,gy);float n=vnoise(vUv*20.)*.15;float moss=smoothstep(.3,.6,fbm(vUv*6.+1.));vec3 brick=mix(vec3(.45,.22,.15),vec3(.55,.28,.18),vnoise(u*3.));vec3 col=mix(brick+n,vec3(.15,.35,.1),.4*moss);gl_FragColor=vec4(mix(col,vec3(.25,.22,.2),g),1.);`],
+["Cracked Earth",0,`vec2 u=vUv*5.;vec2 v=voronoi(u*3.);float crack=smoothstep(.02,.0,v.x-.1);float n=vnoise(u*8.)*.1;vec3 col=mix(vec3(.4,.3,.2)+n,vec3(.1,.08,.05),crack);gl_FragColor=vec4(col,1.);`],
+["Dungeon Slime",0,`vec2 u=vUv*6.;float n=fbm(u+time*.3);float drip=smoothstep(.3,.5,n)*smoothstep(.0,.2,vUv.y+.2*sin(vUv.x*10.+time));vec3 col=mix(vec3(.15,.12,.1),vec3(.2,.5,.1),drip*.6);col+=.05*vnoise(u*15.);gl_FragColor=vec4(col,1.);`],
+["Cobblestone",0,`vec2 u=vUv*6.;vec2 v=voronoi(u);float edge=smoothstep(.05,.15,v.x);float n=vnoise(u*12.)*.1;vec3 col=vec3(.35+n,.33+n,.3+n)*edge;gl_FragColor=vec4(col,1.);`],
+["Ancient Runes",0,`vec2 u=vUv*4.;vec2 cell=floor(u);vec2 f=fract(u);float h=hash21(cell);float line=0.;float a=h*6.28;line+=smoothstep(.08,.02,abs(f.x-.5+.3*cos(a+f.y*3.)));line+=smoothstep(.08,.02,abs(f.y-.5+.3*sin(a+f.x*3.)));line*=step(.3,h);vec3 col=mix(vec3(.2,.18,.15),vec3(.3,.8,.9)*(.5+.5*sin(time*2.)),line*.7);gl_FragColor=vec4(col,1.);`],
+["Dripping Blood",0,`float drip=0.;for(int i=0;i<8;i++){float x=hash21(vec2(float(i),0.));float speed=.3+hash21(vec2(float(i),1.))*.4;float y=fract(-time*speed+hash21(vec2(float(i),2.)));float d=length(vUv-vec2(x,y));drip+=smoothstep(.04,.0,d);}vec3 wall=vec3(.15,.12,.1);vec3 blood=vec3(.5,.02,.02);gl_FragColor=vec4(mix(wall,blood,min(drip,1.)),1.);`],
+["Torch Flicker",0,`vec2 u=vUv;float d=length(u-vec2(.5,.7));float flicker=.7+.3*sin(time*8.)*.5+.15*sin(time*13.+1.);float light=flicker/(d*3.+.3);vec3 col=vec3(.15,.1,.08)+vec3(1.,.6,.2)*light*.3;gl_FragColor=vec4(min(col,vec3(1.)),1.);`],
+["Spider Web",0,`vec2 u=vUv-.5;float a=atan(u.y,u.x);float r=length(u);float web=0.;for(int i=0;i<8;i++){float ra=float(i)*3.14159/4.;web+=smoothstep(.015,.0,abs(a-ra)*r);}float rings=smoothstep(.015,.0,abs(fract(r*8.+.2*sin(a*4.))-.5)-.45);web=max(web,rings)*smoothstep(.5,.1,r);vec3 col=mix(vec3(.1,.08,.1),vec3(.7,.7,.7),web*.5);gl_FragColor=vec4(col,1.);`],
+["Skull Tiles",0,`vec2 u=fract(vUv*4.)-.5;float d=length(u);float skull=smoothstep(.3,.28,d);float eye1=smoothstep(.08,.06,length(u-vec2(-.1,.05)));float eye2=smoothstep(.08,.06,length(u-vec2(.1,.05)));skull-=eye1+eye2;float mouth=smoothstep(.04,.02,abs(u.y+.12))*step(abs(u.x),.12)*step(-.2,u.y)*step(u.y,-.05);vec3 col=mix(vec3(.12,.1,.08),vec3(.7,.65,.55),max(skull,mouth*.5));gl_FragColor=vec4(col,1.);`],
+["Chain Mail",0,`vec2 u=vUv*12.;vec2 c=floor(u);vec2 f=fract(u)-.5;float off=mod(c.y,2.)*.5;float ring=abs(length(f-vec2(off,0.))-.3);ring=min(ring,abs(length(f-vec2(off-1.,0.))-.3));float m=smoothstep(.06,.03,ring);vec3 col=mix(vec3(.15,.15,.18),vec3(.5,.5,.55),m);gl_FragColor=vec4(col,1.);`],
+["Weathered Wood",0,`vec2 u=vUv*vec2(2.,8.);float grain=sin(u.y*20.+4.*vnoise(u*vec2(1.,4.)))*.5+.5;float knot=smoothstep(.3,.0,length(vUv-vec2(.3,.5))-.1);float n=vnoise(u*3.)*.15;vec3 col=mix(vec3(.35,.2,.1),vec3(.5,.35,.15),grain)+n;col=mix(col,vec3(.25,.15,.05),knot*.5);gl_FragColor=vec4(col,1.);`],
+// LAVA & FIRE (1)
+["Molten Lava",1,`vec2 u=vUv*3.;float n=fbm(u+time*.2);float n2=fbm(u*2.-time*.15);float heat=smoothstep(.0,.4,n);vec3 col=mix(vec3(.1,.02,.02),vec3(1.,.3,.0),heat);col=mix(col,vec3(1.,.9,.3),smoothstep(.5,.8,n2)*heat);gl_FragColor=vec4(col,1.);`],
+["Ember Glow",1,`vec2 u=vUv*4.;float n=vnoise(u*3.+time*.5);float n2=vnoise(u*6.-time*.3);float glow=pow(n*.5+.5,3.);vec3 col=vec3(.05,.02,.01)+vec3(1.,.4,.05)*glow+vec3(1.,.8,.2)*pow(n2,4.)*.5;gl_FragColor=vec4(col,1.);`],
+["Fire Wall",1,`vec2 u=vUv*3.;u.y-=time*1.5;float f=0.;f+=.5*vnoise(u);u*=2.;f+=.25*vnoise(u);u*=2.;f+=.125*vnoise(u);f=f*smoothstep(0.,.8,vUv.y);vec3 col=mix(vec3(1.,.2,.0),vec3(1.,.9,.1),f);col=mix(vec3(.02),col,smoothstep(-.1,.3,f));gl_FragColor=vec4(col,1.);`],
+["Magma Cracks",1,`vec2 u=vUv*4.;vec2 v=voronoi(u+time*.1);float crack=smoothstep(.15,.0,v.x);float n=fbm(u*2.+time*.2);vec3 rock=vec3(.15,.12,.1)+.05*n;vec3 magma=mix(vec3(1.,.2,.0),vec3(1.,.7,.0),n);gl_FragColor=vec4(mix(rock,magma,crack),1.);`],
+["Volcanic Ash",1,`vec2 u=vUv*6.;float n=vnoise(u+vec2(0.,time*.3));float spark=pow(vnoise(u*8.+time*2.),8.);vec3 col=vec3(.12,.1,.1)+.08*n;col+=vec3(1.,.5,.1)*spark;gl_FragColor=vec4(col,1.);`],
+["Hell Portal",1,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float swirl=a+r*5.-time*2.;float n=fbm(vec2(swirl,r*3.));float ring=smoothstep(.35,.3,r)*smoothstep(.1,.15,r);vec3 col=vec3(.05);col+=vec3(1.,.2,.0)*ring*(.5+.5*n);col+=vec3(1.,.6,.0)*smoothstep(.12,.0,r)*(.7+.3*sin(time*3.));gl_FragColor=vec4(col,1.);`],
+["Smoke Rising",1,`vec2 u=vUv*3.;u.y-=time*.4;float s=fbm(u);float s2=fbm(u*2.+3.);float smoke=smoothstep(.0,.5,s)*smoothstep(.0,.6,vUv.y);vec3 col=mix(vec3(.02),vec3(.25,.23,.22),smoke);col+=vec3(.4,.2,.05)*pow(s2,3.)*.3*(1.-vUv.y);gl_FragColor=vec4(col,1.);`],
+["Burning Embers",1,`float p=0.;for(int i=0;i<20;i++){vec2 pos=vec2(hash21(vec2(float(i),0.)),hash21(vec2(float(i),1.)));pos.y=fract(pos.y+time*.2*(.5+hash21(vec2(float(i),3.))));float d=length(vUv-pos);float bright=sin(time*3.+float(i))*.5+.5;p+=smoothstep(.02,.0,d)*bright;}vec3 col=vec3(.06,.04,.03)+vec3(1.,.5,.1)*min(p,1.5);gl_FragColor=vec4(col,1.);`],
+["Lava Lamp",1,`vec2 u=vUv*2.;float n1=snoise(u+vec2(0.,time*.3));float n2=snoise(u*1.5-vec2(0.,time*.2)+5.);float blob1=smoothstep(.1,.3,n1);float blob2=smoothstep(.1,.3,n2);vec3 col=vec3(.08,.02,.08);col=mix(col,vec3(.9,.2,.1),blob1);col=mix(col,vec3(1.,.6,.0),blob2*.5);gl_FragColor=vec4(col,1.);`],
+["Inferno",1,`vec2 u=vUv*4.;float t=time*2.;float f=0.;for(int i=0;i<4;i++){u=vec2(u.x*1.5+sin(u.y+t),u.y*1.5+cos(u.x+t));f+=sin(u.x+u.y);}f=f*.25+.5;vec3 col=mix(vec3(0.),vec3(1.,.1,.0),smoothstep(.2,.5,f));col=mix(col,vec3(1.,.9,.2),smoothstep(.6,.9,f));gl_FragColor=vec4(col,1.);`],
+// ICE & WATER (2)
+["Frozen Ice",2,`vec2 u=vUv*5.;float n=fbm(u*3.);float crack=smoothstep(.02,.0,abs(n-.1));vec3 ice=mix(vec3(.6,.8,.95),vec3(.3,.5,.8),n*.5+.5);ice+=vec3(.8,.9,1.)*crack*.3;gl_FragColor=vec4(ice,1.);`],
+["Water Ripple",2,`vec2 u=vUv-.5;float r=length(u);float wave=sin(r*30.-time*4.)*.5+.5;wave*=smoothstep(.5,.1,r);vec3 col=mix(vec3(.05,.15,.3),vec3(.2,.5,.7),wave*.5);col+=vec3(.3,.4,.5)*pow(wave,4.)*.3;gl_FragColor=vec4(col,1.);`],
+["Frost Crystals",2,`vec2 u=vUv*8.;vec2 v=voronoi(u);float pattern=smoothstep(.1,.3,v.x);float n=vnoise(vUv*20.)*.1;vec3 col=mix(vec3(.85,.92,.98),vec3(.5,.7,.9),pattern)+n;col+=vec3(.1,.1,.15)*smoothstep(.3,.0,v.x);gl_FragColor=vec4(col,1.);`],
+["Deep Ocean",2,`vec2 u=vUv*3.;float t=time*.5;float w=sin(u.x*5.+t)*sin(u.y*4.-t*.7)*.5+.5;float n=fbm(u+t*.2);vec3 col=mix(vec3(.02,.05,.15),vec3(.05,.2,.4),w);col+=vec3(.0,.1,.15)*n;float caust=pow(vnoise(u*4.+t),3.);col+=vec3(.1,.3,.4)*caust;gl_FragColor=vec4(col,1.);`],
+["Waterfall",2,`vec2 u=vUv*vec2(4.,2.);u.y-=time*2.;float n=vnoise(u*vec2(2.,8.));float foam=pow(vnoise(u*vec2(3.,12.)+time),3.);vec3 col=mix(vec3(.1,.2,.35),vec3(.3,.5,.65),n);col+=vec3(.7,.8,.9)*foam*.5;col*=.7+.3*vUv.y;gl_FragColor=vec4(col,1.);`],
+["Ice Shard",2,`vec2 u=vUv-.5;float a=atan(u.y,u.x);float r=length(u);float shard=abs(sin(a*3.))*smoothstep(.5,.1,r);float n=vnoise(vUv*15.)*.1;vec3 col=vec3(.7,.85,.95)*shard+vec3(.3,.5,.7)*(1.-shard);col+=n+vec3(.9,.95,1.)*pow(shard,3.)*.3;gl_FragColor=vec4(col,1.);`],
+["Rain Drops",2,`float rain=0.;for(int i=0;i<15;i++){vec2 p=vec2(hash21(vec2(float(i),0.)),fract(hash21(vec2(float(i),1.))-time*.5));float d=length(vUv-p);rain+=smoothstep(.015,.0,d);}float wet=vnoise(vUv*10.+time*.2)*.2;vec3 col=vec3(.2,.22,.25)+wet;col+=vec3(.5,.6,.7)*min(rain,1.);gl_FragColor=vec4(col,1.);`],
+["Coral Reef",2,`vec2 u=vUv*5.;vec2 v=voronoi(u+sin(time*.5)*.2);float cell=smoothstep(.1,.4,v.x);float n=vnoise(u*3.)*.2;vec3 col=mix(vec3(.8,.3,.4),vec3(.3,.15,.4),cell);col=mix(col,vec3(.9,.5,.2),vnoise(u*5.)*.3);col*=.8+.2*sin(vUv.y*20.+time);gl_FragColor=vec4(col+n,1.);`],
+["Bubble Wall",2,`float bub=0.;for(int i=0;i<12;i++){vec2 p=vec2(hash21(vec2(float(i),7.)),fract(hash21(vec2(float(i),3.))+time*.15));float r=.03+hash21(vec2(float(i),5.))*.05;float d=length(vUv-p);float ring=smoothstep(r+.01,r,d)*smoothstep(r-.015,r-.005,d);bub+=ring;}vec3 col=mix(vec3(.05,.12,.2),vec3(.3,.6,.8),bub);gl_FragColor=vec4(col,1.);`],
+["Frozen Falls",2,`vec2 u=vUv*vec2(3.,6.);float icicle=pow(vnoise(vec2(u.x*2.,u.y*.5)),2.);float shimmer=vnoise(u*4.+time*.5)*.1;vec3 col=mix(vec3(.5,.7,.85),vec3(.8,.9,.98),icicle);col+=shimmer;col*=.6+.4*(1.-vUv.y);gl_FragColor=vec4(col,1.);`],
+// SCI-FI (3)
+["Matrix Rain",3,`vec2 u=vUv*vec2(20.,1.);float col_id=floor(u.x);float speed=.5+hash21(vec2(col_id,0.))*.8;float y=fract(vUv.y-time*speed+hash21(vec2(col_id,1.)));float bright=pow(y,3.);float cn=step(.5,hash21(floor(vec2(u.x,vUv.y*30.+time*5.))));vec3 col=vec3(.0,.8,.2)*bright*cn;gl_FragColor=vec4(col,1.);`],
+["Circuit Board",3,`vec2 u=vUv*8.;vec2 cell=floor(u);vec2 f=fract(u);float h=hash21(cell);float line=0.;if(h>.5){line=smoothstep(.06,.02,abs(f.x-.5));}else{line=smoothstep(.06,.02,abs(f.y-.5));}float node=smoothstep(.12,.08,length(f-.5));float pulse=sin(time*3.+cell.x+cell.y)*.5+.5;vec3 col=vec3(.02,.04,.02)+vec3(.0,.6,.3)*line*(.3+.7*pulse)+vec3(.1,1.,.3)*node;gl_FragColor=vec4(col,1.);`],
+["Hologram",3,`vec2 u=vUv;float scan=sin(u.y*200.+time*10.)*.5+.5;float glitch=step(.98,hash21(vec2(floor(u.y*20.),floor(time*10.))));u.x+=glitch*.05;float n=vnoise(u*5.+time)*.5+.5;vec3 col=vec3(.1,.5,.8)*n*(.5+.5*scan);col+=vec3(.0,.2,.4)*glitch;col.r+=.1*sin(u.y*100.+time*5.);gl_FragColor=vec4(col,1.);`],
+["Energy Shield",3,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float hex=cos(a*6.)*.03;float shield=smoothstep(.4+hex,.38+hex,r)*smoothstep(.2,.22,r);float pulse=sin(r*20.-time*5.)*.5+.5;float hit=exp(-3.*length(u-vec2(.1*sin(time),.1*cos(time))));vec3 col=vec3(.0,.5,1.)*shield*(.3+.7*pulse)+vec3(.5,.8,1.)*hit*.5;gl_FragColor=vec4(col,1.);`],
+["Neon Grid",3,`vec2 u=vUv*10.;vec2 g=abs(fract(u)-.5);float grid=smoothstep(.04,.01,min(g.x,g.y));float pulse=sin(time*2.+floor(u.x)+floor(u.y)*3.)*.5+.5;vec3 col=vec3(.02,.0,.05)+vec3(1.,.0,.5)*grid*(.3+.7*pulse);col+=vec3(.2,.0,.3)*smoothstep(.3,.0,min(g.x,g.y));gl_FragColor=vec4(col,1.);`],
+["Plasma Ball",3,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float bolt=0.;for(int i=0;i<5;i++){float aa=float(i)*1.2566+time;float d=abs(a-aa+sin(r*10.+time*3.)*.3);d=min(d,6.28-d);bolt+=smoothstep(.15,.0,d)*smoothstep(.45,.1,r);}vec3 col=vec3(.05,.0,.1)+vec3(.5,.2,1.)*bolt+vec3(.8,.5,1.)*smoothstep(.05,.0,r);gl_FragColor=vec4(col,1.);`],
+["Data Stream",3,`vec2 u=vUv*vec2(12.,1.);float idx=floor(u.x);float dir=mod(idx,2.)==0.?1.:-1.;float y=fract(vUv.y+time*.3*dir+hash21(vec2(idx,0.)));float bit=step(.5,hash21(floor(vec2(u.x,vUv.y*20.+time*2.*dir))));float fade=pow(1.-y,2.);vec3 col=vec3(.0,.3,.6)*bit*fade;gl_FragColor=vec4(col,1.);`],
+["Electric Arc",3,`float arc=0.;for(int i=0;i<3;i++){float t=time*2.+float(i)*2.;vec2 u=vUv;float xp=u.x;float y=.5+.2*sin(xp*5.+t)+.1*vnoise(vec2(xp*10.,t));arc+=smoothstep(.03,.0,abs(u.y-y));}vec3 col=vec3(.02,.0,.05)+vec3(.3,.3,1.)*arc+vec3(.5,.5,1.)*pow(arc,3.);gl_FragColor=vec4(col,1.);`],
+["Hex Grid",3,`vec2 u=vUv*8.;vec2 r=vec2(1.,1.732);vec2 h=r*.5;vec2 a=mod(u,r)-h;vec2 b=mod(u-h,r)-h;vec2 g=dot(a,a)<dot(b,b)?a:b;float d=max(abs(g.x),abs(g.y*.577+abs(g.x)*.5));float hex=smoothstep(.5,.48,d);float pulse=sin(time+dot(floor(u),vec2(1.,1.7)))*.5+.5;vec3 col=vec3(.02,.02,.06)+vec3(.0,.4,.6)*hex*(.2+.8*pulse);gl_FragColor=vec4(col,1.);`],
+["Tron Lines",3,`vec2 u=vUv*6.;vec2 g=fract(u);float hline=smoothstep(.04,.01,abs(g.y-.5));float vline=smoothstep(.04,.01,abs(g.x-.5));float line=max(hline,vline);float move=sin(time*3.+floor(u.x)*2.+floor(u.y)*3.)*.5+.5;vec3 col=vec3(.01,.01,.03)+vec3(.0,.7,1.)*line*(.15+.85*step(.7,move));float nd=smoothstep(.1,.05,length(g-.5));col+=vec3(.2,1.,1.)*nd;gl_FragColor=vec4(col,1.);`],
+["Scan Lines",3,`float scan=sin(vUv.y*300.)*.5+.5;float sweep=smoothstep(.02,.0,abs(fract(vUv.y-time*.2)-.5)-.48);float n=vnoise(vUv*vec2(5.,20.)+time)*.3;vec3 base=vec3(.0,.15,.1);vec3 col=base+vec3(.0,.3,.2)*scan*.3+vec3(.0,.8,.4)*sweep;col+=n*vec3(.0,.1,.05);gl_FragColor=vec4(col,1.);`],
+["Force Field",3,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float field=sin(a*8.+r*15.-time*4.)*.5+.5;field*=smoothstep(.45,.3,r)*smoothstep(.05,.15,r);float edge=smoothstep(.42,.38,r)*smoothstep(.35,.38,r);vec3 col=vec3(.0,.2,.4)*field+vec3(.3,.6,1.)*edge;col+=vec3(.1,.3,.6)*pow(field,3.);gl_FragColor=vec4(col,1.);`],
+// PSYCHEDELIC (4)
+["Rainbow Spiral",4,`vec2 u=vUv-.5;float a=atan(u.y,u.x);float r=length(u);float spiral=fract(a/6.2832+r*3.-time*.3);vec3 col=.5+.5*cos(6.2832*(spiral+vec3(0.,.33,.67)));col*=smoothstep(.0,.1,r);gl_FragColor=vec4(col,1.);`],
+["Kaleidoscope",4,`vec2 u=vUv-.5;float a=atan(u.y,u.x);float r=length(u);a=abs(mod(a,1.047)-.524);vec2 k=r*vec2(cos(a),sin(a));float n=fbm(k*4.+time*.3);vec3 col=.5+.5*cos(n*4.+time+vec3(0.,2.,4.));gl_FragColor=vec4(col*smoothstep(.5,.1,r),1.);`],
+["Acid Trip",4,`vec2 u=vUv*3.;float t=time*.5;float n=sin(u.x*3.+sin(u.y*4.+t))+sin(u.y*3.+sin(u.x*2.+t*1.3));n=n*.25+.5;vec3 col=.5+.5*cos(n*8.+t*2.+vec3(0.,2.,4.));gl_FragColor=vec4(col,1.);`],
+["Fractal Zoom",4,`vec2 u=(vUv-.5)*4.;float t=time*.2;u*=1.+.5*sin(t);u=mat2(cos(t),sin(t),-sin(t),cos(t))*u;float v=0.;for(int i=0;i<8;i++){u=abs(u)/dot(u,u)-1.;v+=length(u);}v/=8.;vec3 col=.5+.5*cos(v*3.+vec3(0.,2.,4.));gl_FragColor=vec4(col,1.);`],
+["Plasma Wave",4,`vec2 u=vUv*4.;float v=sin(u.x+time)+sin(u.y+time*1.1)+sin((u.x+u.y)+time*.7)+sin(length(u)+time*1.3);v=v*.25+.5;vec3 col=.5+.5*cos(v*6.2832+vec3(0.,2.1,4.2));gl_FragColor=vec4(col,1.);`],
+["Morphing Cells",4,`vec2 u=vUv*4.;vec2 v=voronoi(u+sin(time*.5)*.5);float c=v.x;vec3 col=.5+.5*cos(c*8.+time+vec3(0.,2.,4.));gl_FragColor=vec4(col,1.);`],
+["Moire Pattern",4,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float p1=sin(r*40.-time*2.);float p2=sin(a*10.+r*20.+time);float v=(p1+p2)*.5;vec3 col=.5+.5*cos(v*3.+vec3(0.,2.,4.));gl_FragColor=vec4(col,1.);`],
+["Interference",4,`vec2 u=vUv*10.;float w1=sin(length(u-vec2(3.,5.))*4.-time*3.);float w2=sin(length(u-vec2(7.,5.))*4.-time*3.);float w3=sin(length(u-vec2(5.,2.))*4.-time*3.);float v=(w1+w2+w3)/3.;vec3 col=.5+.5*cos(v*6.+vec3(0.,2.,4.));gl_FragColor=vec4(col,1.);`],
+["Tie Dye",4,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float swirl=a+r*5.+time*.5;float n=fbm(vec2(swirl,r*3.));vec3 col=.5+.5*cos(n*5.+vec3(1.,3.,5.));col*=.8+.2*sin(swirl*3.);gl_FragColor=vec4(col,1.);`],
+["Oil Slick",4,`vec2 u=vUv*3.;float n=fbm(u+time*.15);float thin=sin(n*15.)*.5+.5;vec3 col=.5+.5*cos(thin*6.2832*2.+vec3(1.,2.5,4.));col*=.7+.3*n;gl_FragColor=vec4(col,1.);`],
+["Waveform",4,`float wave=0.;for(int i=1;i<8;i++){float f=float(i);wave+=sin(vUv.x*f*10.+time*f*.5)/(f*2.);}wave=wave*.5+.5;float d=smoothstep(.02,.0,abs(vUv.y-wave));float glow=smoothstep(.1,.0,abs(vUv.y-wave));vec3 col=vec3(.02)+vec3(.0,1.,.5)*d+vec3(.0,.3,.2)*glow;gl_FragColor=vec4(col,1.);`],
+["Hypno Rings",4,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float ring=sin(r*25.-time*3.+sin(a*3.)*2.)*.5+.5;vec3 col=mix(vec3(.1,.0,.2),vec3(.8,.2,.8),ring);col+=vec3(.4,.1,.5)*smoothstep(.03,.0,abs(r-.2-.05*sin(time*2.)));gl_FragColor=vec4(col,1.);`],
+// NATURE (5)
+["Aurora",5,`vec2 u=vUv*2.;float t=time*.3;float wave=sin(u.x*3.+t)*sin(u.x*5.+t*1.3)*.5+.5;float n=fbm(vec2(u.x*2.+t,u.y*.5));float band=exp(-pow(u.y-.5-wave*.3,2.)*8.);vec3 col=vec3(.02,.02,.05);col+=vec3(.1,.6,.3)*band*n;col+=vec3(.2,.3,.8)*band*(1.-n)*.5;gl_FragColor=vec4(col,1.);`],
+["Galaxy",5,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float spiral=fbm(vec2(a+r*5.-time*.2,r*3.));float stars=pow(hash21(floor(vUv*200.)),20.);vec3 col=vec3(.02,.01,.04)+vec3(.3,.1,.5)*spiral*exp(-r*3.)+vec3(.8,.6,.3)*spiral*exp(-r*5.);col+=stars;gl_FragColor=vec4(col,1.);`],
+["Nebula",5,`vec2 u=vUv*3.;float n1=fbm(u+time*.1);float n2=fbm(u*2.-time*.15+5.);vec3 col=vec3(.02,.01,.05);col+=vec3(.5,.1,.3)*smoothstep(.3,.7,n1);col+=vec3(.1,.2,.6)*smoothstep(.4,.8,n2);col+=vec3(.8,.4,.1)*pow(n1*n2,2.);float stars=pow(hash21(floor(vUv*150.)),25.);col+=stars;gl_FragColor=vec4(col,1.);`],
+["Lightning",5,`float bolt=0.;for(int i=0;i<3;i++){float t=time*3.+float(i)*7.;float xp=.5;float yp=1.;for(int j=0;j<12;j++){float ny=yp-.08;float nx=xp+.08*(hash21(vec2(float(j),t))-.5);float d=length(vUv-vec2(xp,yp));bolt+=smoothstep(.01,.0,d-.002);xp=nx;yp=ny;}bolt*=.5+.5*sin(t*5.);}vec3 col=vec3(.03,.0,.06)+vec3(.5,.5,1.)*min(bolt,1.);gl_FragColor=vec4(col,1.);`],
+["Grass Blades",5,`float vine=0.;for(int i=0;i<20;i++){float xp=hash21(vec2(float(i),0.));float h=.3+hash21(vec2(float(i),1.))*.5;float sway=sin(time*2.+float(i))*.03*vUv.y;float w=smoothstep(.01,.002,abs(vUv.x-xp-sway))*step(1.-h,vUv.y);vine+=w;}vec3 col=mix(vec3(.15,.1,.05),vec3(.15,.45,.1),min(vine,1.));gl_FragColor=vec4(col,1.);`],
+["Clouds",5,`vec2 u=vUv*2.;u.x+=time*.1;float c=fbm(u*3.);vec3 sky=mix(vec3(.3,.5,.8),vec3(.6,.7,.9),vUv.y);vec3 cloud=vec3(.95,.95,.97);float density=smoothstep(.1,.5,c);gl_FragColor=vec4(mix(sky,cloud,density),1.);`],
+["Sand Dunes",5,`vec2 u=vUv*4.;u.x+=time*.05;float ridge=sin(u.x*3.+sin(u.y*2.)*.5)*.5+.5;float n=vnoise(u*5.)*.1;vec3 col=mix(vec3(.7,.6,.4),vec3(.85,.75,.55),ridge)+n;col*=.8+.2*vUv.y;gl_FragColor=vec4(col,1.);`],
+["Mushroom Glow",5,`vec2 u=vUv;float glow=exp(-2.*length(u-vec2(.5,.5)));float cap=smoothstep(.22,.2,length((u-vec2(.5,.65))*vec2(1.,.7)));float stem=smoothstep(.06,.04,abs(u.x-.5))*step(.3,u.y)*step(u.y,.5);vec3 col=vec3(.05,.08,.03)+vec3(.15,.05,.08)*cap+vec3(.1,.08,.04)*stem;col+=vec3(.1,.4,.2)*glow*.4;gl_FragColor=vec4(col,1.);`],
+["Starfield",5,`vec3 col=vec3(.01,.01,.02);for(int layer=0;layer<3;layer++){vec2 u=vUv*pow(2.,float(layer+3));u+=time*.02*float(layer+1);vec2 id=floor(u);float star=pow(hash21(id),30.-float(layer)*8.);float twinkle=sin(time*2.+hash21(id+.5)*6.28)*.3+.7;col+=star*twinkle;}gl_FragColor=vec4(col,1.);`],
+["Vines",5,`float vine=0.;for(int i=0;i<5;i++){float xp=.1+float(i)*.2;float sway=sin(vUv.y*8.+time+float(i))*.04;vine+=smoothstep(.015,.003,abs(vUv.x-xp-sway))*smoothstep(0.,.8,vUv.y);}vec3 col=mix(vec3(.15,.1,.08),vec3(.15,.35,.1),min(vine,1.));gl_FragColor=vec4(col,1.);`],
+// MATERIALS (6)
+["Rusted Metal",6,`vec2 u=vUv*5.;float n=fbm(u*2.);float rust=smoothstep(.2,.6,n);float scratch=smoothstep(.02,.0,abs(vnoise(u*vec2(20.,2.))-.5)-.4);vec3 metal=vec3(.4,.4,.42);vec3 rustCol=vec3(.5,.25,.1);vec3 col=mix(metal,rustCol,rust)+.1*scratch;gl_FragColor=vec4(col,1.);`],
+["Brushed Steel",6,`vec2 u=vUv;float brush=vnoise(u*vec2(2.,200.))*.1;float refl=pow(sin(u.y*50.+u.x*5.)*.5+.5,8.)*.2;vec3 col=vec3(.55,.55,.58)+brush+refl;gl_FragColor=vec4(col,1.);`],
+["Gold Leaf",6,`vec2 u=vUv*4.;float n=fbm(u);float crack=smoothstep(.02,.0,abs(n-.3));float sheen=pow(sin(u.x*3.+u.y*2.)*.5+.5,4.);vec3 col=mix(vec3(.7,.55,.15),vec3(.9,.75,.3),n*.5+.5);col+=vec3(.3,.2,.05)*sheen+crack*.1;gl_FragColor=vec4(col,1.);`],
+["Crystal",6,`vec2 u=vUv*5.;vec2 v=voronoi(u);float facet=v.x;float edge=smoothstep(.05,.02,facet);float n=vnoise(u*10.)*.1;vec3 col=mix(vec3(.6,.3,.7),vec3(.9,.7,.95),facet*2.);col+=vec3(.3,.15,.35)*edge;col+=n;float sparkle=pow(vnoise(u*20.+time*2.),10.);col+=sparkle;gl_FragColor=vec4(col,1.);`],
+["Diamond Plate",6,`vec2 u=vUv*8.;vec2 f=fract(u)-.5;float diamond=1.-smoothstep(.25,.27,abs(f.x)+abs(f.y));float n=vnoise(vUv*30.)*.05;vec3 col=vec3(.45,.45,.48)+vec3(.1)*diamond+n;gl_FragColor=vec4(col,1.);`],
+["Copper Patina",6,`vec2 u=vUv*4.;float n=fbm(u*3.);float patina=smoothstep(.3,.7,n);float detail=vnoise(u*10.)*.1;vec3 copper=vec3(.65,.4,.2);vec3 green=vec3(.3,.55,.45);vec3 col=mix(copper,green,patina)+detail;gl_FragColor=vec4(col,1.);`],
+["Ceramic Tiles",6,`vec2 u=vUv*4.;vec2 f=fract(u);float grout=max(smoothstep(.05,.02,f.x),smoothstep(.05,.02,f.y));grout=max(grout,max(smoothstep(.95,.98,f.x),smoothstep(.95,.98,f.y)));float glaze=pow(vnoise(u*3.+.5)*.5+.8,2.);vec3 col=mix(vec3(.85,.85,.82)*glaze,vec3(.5,.48,.45),grout);gl_FragColor=vec4(col,1.);`],
+["Obsidian",6,`vec2 u=vUv*3.;float n=fbm(u*4.);float sheen=pow(sin(vUv.x*10.+vUv.y*8.)*.5+.5,8.)*.3;vec3 col=vec3(.05,.05,.07)+.08*n+sheen;gl_FragColor=vec4(col,1.);`],
+["Stained Glass",6,`vec2 u=vUv*5.;vec2 v=voronoi(u);float edge=smoothstep(.05,.1,v.x);float id=hash21(floor(u+.5));vec3 hue=.5+.5*cos(id*6.28+vec3(0.,2.,4.));vec3 col=hue*edge*.8;float light=.7+.3*sin(time+id*5.);col*=light;col+=vec3(.05)*(1.-edge);gl_FragColor=vec4(col,1.);`],
+["Carbon Fiber",6,`vec2 u=vUv*20.;vec2 f=fract(u);float weave=sin(f.x*3.14)*sin(f.y*3.14);float alt=mod(floor(u.x)+floor(u.y),2.);weave=alt>.5?weave:-weave;float n=vnoise(vUv*40.)*.02;vec3 col=vec3(.12,.12,.13)+vec3(.05)*weave+n;gl_FragColor=vec4(col,1.);`],
+["Mercury",6,`vec2 u=vUv*3.;float n=fbm(u+time*.2);float n2=fbm(u*2.-time*.15);float refl=pow(n*.5+.5,3.);vec3 col=vec3(.6,.6,.65)+.2*refl;col+=vec3(.1)*sin(n2*10.);gl_FragColor=vec4(col,1.);`],
+["Leather",6,`vec2 u=vUv*8.;float grain=vnoise(u*4.)*.15+vnoise(u*8.)*.08;float pore=pow(vnoise(u*15.),4.)*.1;vec3 col=vec3(.35,.2,.12)+grain-pore;gl_FragColor=vec4(col,1.);`],
+// ANIMATED (7)
+["Dissolve",7,`float n=vnoise(vUv*8.);float thresh=fract(time*.2);float edge=smoothstep(thresh-.05,thresh,n)*smoothstep(thresh+.05,thresh,n);float show=step(thresh,n);vec3 col=vec3(.3,.25,.2)*show;col+=vec3(1.,.5,.0)*edge*3.;gl_FragColor=vec4(col,1.);`],
+["Glitch",7,`vec2 u=vUv;float t=floor(time*8.)*.1;float block=floor(u.y*15.+t);float glitch=step(.8,hash21(vec2(block,t)));u.x+=glitch*(hash21(vec2(block+1.,t))-.5)*.2;float n=vnoise(u*5.);vec3 col=vec3(n*.5);col.r=vnoise((u+vec2(.02,0.))*5.)*.5;col.b=vnoise((u-vec2(.02,0.))*5.)*.5;col+=vec3(1.,.0,.2)*glitch*.3;gl_FragColor=vec4(col,1.);`],
+["Wave Distort",7,`vec2 u=vUv;u.x+=sin(u.y*10.+time*3.)*.05;u.y+=cos(u.x*8.+time*2.)*.05;vec2 g=fract(u*6.);float grid=smoothstep(.06,.02,min(abs(g.x-.5),abs(g.y-.5)));float n=vnoise(u*4.)*.3;vec3 col=vec3(.1,.15,.25)+vec3(.2,.4,.6)*grid+n*.1;gl_FragColor=vec4(col,1.);`],
+["Heartbeat",7,`vec2 u=vUv-.5;float r=length(u);float beat=abs(sin(time*4.))*.2;float pulse=smoothstep(.3+beat,.28+beat,r);float ring=smoothstep(.32+beat,.3+beat,r)*smoothstep(.28+beat,.3+beat,r);vec3 col=vec3(.05,.0,.0)+vec3(.5,.05,.05)*pulse+vec3(1.,.2,.2)*ring*2.;col+=vec3(.3,.0,.0)*exp(-5.*r)*(.5+.5*sin(time*8.));gl_FragColor=vec4(col,1.);`],
+["Breathing",7,`float breath=sin(time*1.5)*.5+.5;vec2 u=(vUv-.5)*(1.+breath*.2)+.5;float n=fbm(u*4.);vec3 col=mix(vec3(.15,.1,.2),vec3(.3,.2,.4),n);col*=.7+.3*breath;float glow=exp(-3.*length(vUv-.5));col+=vec3(.2,.1,.3)*glow*breath;gl_FragColor=vec4(col,1.);`],
+["TV Static",7,`float sv=hash21(floor(vUv*vec2(120.,90.))+floor(time*15.));float scanline=sin(vUv.y*400.)*.5+.5;vec3 col=vec3(sv)*(.8+.2*scanline);gl_FragColor=vec4(col,1.);`],
+["Gears",7,`float gear=0.;for(int i=0;i<3;i++){vec2 center=vec2(.25+float(i)*.25,.5);vec2 u=vUv-center;float r=length(u);float a=atan(u.y,u.x)+time*(mod(float(i),2.)==0.?1.:-1.);float teeth=.12+.02*sin(a*8.);float ring=smoothstep(teeth+.01,teeth,r)*smoothstep(.05,.06,r);gear+=ring;}vec3 col=vec3(.15,.15,.18)+vec3(.4,.4,.43)*min(gear,1.);gl_FragColor=vec4(col,1.);`],
+["Pixel Rain",7,`vec3 col=vec3(.05,.02,.08);for(int i=0;i<30;i++){float xp=hash21(vec2(float(i),0.))*.9+.05;float speed=.3+hash21(vec2(float(i),1.))*.5;float y=fract(-time*speed+hash21(vec2(float(i),2.)));float px=.015;float d=max(abs(vUv.x-xp),abs(vUv.y-y));float drop=smoothstep(px,px-.005,d);vec3 hue=.5+.5*cos(float(i)+vec3(0.,2.,4.));col+=hue*drop;}gl_FragColor=vec4(col,1.);`],
+["Ripple Touch",7,`float ripple=0.;for(int i=0;i<3;i++){float t=time+float(i)*1.5;vec2 center=vec2(.5+.3*sin(t*.7),.5+.3*cos(t*.5));float r=length(vUv-center);float wave=sin(r*30.-t*5.)*exp(-r*5.)*smoothstep(0.,.5,fract(t*.3));ripple+=wave;}vec3 col=vec3(.15,.12,.2)+vec3(.4,.3,.6)*ripple+vec3(.2,.15,.3);gl_FragColor=vec4(col,1.);`],
+["Spinner",7,`vec2 u=vUv-.5;float a=atan(u.y,u.x);float r=length(u);float spin=fract(a/6.2832-time*.3);float arc=smoothstep(.0,.7,spin)*smoothstep(.35,.33,r)*smoothstep(.25,.27,r);float dotd=smoothstep(.04,.03,length(u-vec2(.34*cos(-time*1.9),.34*sin(-time*1.9))));vec3 col=vec3(.08)+vec3(.3,.6,1.)*arc+vec3(.5,.8,1.)*dotd;gl_FragColor=vec4(col,1.);`],
+["Clock",7,`vec2 u=vUv-.5;float r=length(u);float a=atan(u.y,u.x);float face=smoothstep(.42,.4,r);float sec_a=-time;float sec=smoothstep(.008,.002,abs(sin(a-sec_a)*r))*step(0.,cos(a-sec_a))*smoothstep(.35,.0,r);float min_a=-time/60.;float mn=smoothstep(.012,.004,abs(sin(a-min_a)*r))*step(0.,cos(a-min_a))*smoothstep(.3,.0,r);vec3 col=vec3(.9,.9,.85)*face;col=mix(col,vec3(.1),max(sec,mn*.7)*face);col=mix(vec3(.1),col,face);gl_FragColor=vec4(col,1.);`],
+// ARTISTIC (8)
+["Watercolor",8,`vec2 u=vUv*3.;float n1=fbm(u+.5);float n2=fbm(u*1.5+3.);float n3=fbm(u*2.+7.);vec3 col=vec3(.95,.93,.9);col=mix(col,vec3(.4,.5,.8),.3*smoothstep(.3,.6,n1));col=mix(col,vec3(.8,.4,.5),.25*smoothstep(.4,.7,n2));col=mix(col,vec3(.4,.7,.5),.2*smoothstep(.3,.6,n3));col+=vnoise(vUv*30.)*.05;gl_FragColor=vec4(col,1.);`],
+["Ink Wash",8,`vec2 u=vUv*3.;float n=fbm(u*2.);float ink=smoothstep(.3,.7,n);float edge=smoothstep(.45,.5,n)*smoothstep(.55,.5,n);vec3 col=mix(vec3(.95,.93,.88),vec3(.1,.08,.05),ink*.6);col=mix(col,vec3(.05),edge*.3);gl_FragColor=vec4(col,1.);`],
+["Pop Art Dots",8,`vec2 u=fract(vUv*3.);float d=length(u-.5);float dots=smoothstep(.35,.33,d);vec2 cell=floor(vUv*3.);float id=hash21(cell);vec3 c0=vec3(1.,.2,.2),c1=vec3(.2,.4,1.),c2=vec3(1.,.9,.1),c3=vec3(.1,.8,.3);vec3 bg=id<.25?c0:id<.5?c1:id<.75?c2:c3;vec3 col=mix(bg*.3,bg,dots);gl_FragColor=vec4(col,1.);`],
+["Pixel Art",8,`vec2 u=floor(vUv*32.)/32.;float n=vnoise(u*4.+time*.2);vec3 p0=vec3(.15,.1,.2),p1=vec3(.3,.2,.35),p2=vec3(.5,.35,.4),p3=vec3(.7,.55,.5);vec3 col=n<.25?p0:n<.5?p1:n<.75?p2:p3;gl_FragColor=vec4(col,1.);`],
+["Cross Hatch",8,`vec2 u=vUv*10.;float n=vnoise(vUv*3.)*.8+.1;float h1=smoothstep(.04,.01,abs(fract(u.x+u.y)-.5))*step(n,.7);float h2=smoothstep(.04,.01,abs(fract(u.x-u.y)-.5))*step(n,.5);float h3=smoothstep(.04,.01,abs(fract(u.x*1.5)-.5))*step(n,.3);float hatch=max(h1,max(h2,h3));vec3 col=mix(vec3(.95,.92,.85),vec3(.1,.08,.05),hatch);gl_FragColor=vec4(col,1.);`],
+["Mosaic",8,`vec2 u=vUv*12.;vec2 cell=floor(u);vec2 f=fract(u);float id=hash21(cell);float grout=max(smoothstep(.08,.04,f.x),smoothstep(.08,.04,f.y));grout=max(grout,max(smoothstep(.92,.96,f.x),smoothstep(.92,.96,f.y)));vec3 hue=.4+.4*cos(id*8.+vec3(0.,2.,4.));vec3 col=mix(hue*.8,vec3(.3,.28,.25),grout);gl_FragColor=vec4(col,1.);`],
+["Blueprint",8,`vec2 u=vUv*10.;vec2 g=fract(u);float grid=smoothstep(.03,.01,min(abs(g.x-.5),abs(g.y-.5)));float major=smoothstep(.04,.015,min(abs(fract(vUv.x*2.)-.5),abs(fract(vUv.y*2.)-.5)));float circle=smoothstep(.015,.005,abs(length(vUv-.5)-.25));vec3 col=vec3(.1,.15,.35)+vec3(.15,.2,.4)*grid*.3+vec3(.2,.3,.6)*major+vec3(.4,.5,.8)*circle;gl_FragColor=vec4(col,1.);`],
+["Neon Sign",8,`vec2 u=vUv-.5;float d1=abs(length(u)-.2);float sign_v=smoothstep(.02,.005,d1);float glow=exp(-10.*d1);float cross_h=smoothstep(.015,.003,abs(u.y+.05))*step(abs(u.x),.15);float cross_v=smoothstep(.015,.003,abs(u.x))*step(abs(u.y+.05),.15);sign_v=max(sign_v,max(cross_h,cross_v));vec3 col=vec3(.05,.02,.08)+vec3(1.,.1,.3)*sign_v+vec3(.5,.05,.15)*glow;col+=vec3(.3,.02,.1)*sign_v*(.7+.3*sin(time*10.));gl_FragColor=vec4(col,1.);`],
+];
+
+const categories = ["Dungeon","Lava & Fire","Ice & Water","Sci-Fi","Psychedelic","Nature","Materials","Animated","Artistic"];
+
+// Build UI
+const catsDiv = document.getElementById('cats');
+function filterCat(idx) {
+    document.querySelectorAll('.cat-btn').forEach((b,i) => b.classList.toggle('active', i === idx + 1));
+    document.querySelectorAll('.card').forEach(c => {
+        c.style.display = (idx === -1 || parseInt(c.dataset.cat) === idx) ? '' : 'none';
+    });
+}
+const allBtn = document.createElement('div');
+allBtn.className = 'cat-btn active'; allBtn.textContent = 'All';
+allBtn.onclick = () => filterCat(-1); catsDiv.appendChild(allBtn);
+categories.forEach((c, i) => {
+    const btn = document.createElement('div');
+    btn.className = 'cat-btn'; btn.textContent = c;
+    btn.onclick = () => filterCat(i); catsDiv.appendChild(btn);
+});
+
+// Single offscreen GL context for thumbnail rendering
+const offCanvas = document.createElement('canvas');
+offCanvas.width = 256; offCanvas.height = 256;
+const gl = offCanvas.getContext('webgl', {preserveDrawingBuffer: true, antialias: false});
+
+function mkShader(glCtx, type, src) {
+    const s = glCtx.createShader(type);
+    glCtx.shaderSource(s, src);
+    glCtx.compileShader(s);
+    if (!glCtx.getShaderParameter(s, glCtx.COMPILE_STATUS)) {
+        console.warn('Shader error:', glCtx.getShaderInfoLog(s), src.slice(0, 200));
+        glCtx.deleteShader(s);
+        return null;
+    }
+    return s;
+}
+
+function mkProgram(glCtx, fragBody) {
+    const vs = mkShader(glCtx, glCtx.VERTEX_SHADER, VS);
+    const fs = mkShader(glCtx, glCtx.FRAGMENT_SHADER,
+        `precision mediump float;varying vec2 vUv;uniform float time;${NOISE}\nvoid main(){${fragBody}}`);
+    if (!vs || !fs) return null;
+    const prog = glCtx.createProgram();
+    glCtx.attachShader(prog, vs); glCtx.attachShader(prog, fs);
+    glCtx.linkProgram(prog);
+    if (!glCtx.getProgramParameter(prog, glCtx.LINK_STATUS)) {
+        console.warn('Link error:', glCtx.getProgramInfoLog(prog));
+        return null;
+    }
+    return prog;
+}
+
+// Quad buffer
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+
+function renderToImage(prog, t) {
+    gl.viewport(0, 0, 256, 256);
+    gl.useProgram(prog);
+    gl.uniform1f(gl.getUniformLocation(prog, 'time'), t);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    return offCanvas.toDataURL('image/jpeg', 0.85);
+}
+
+// Build cards with static thumbnails
+const cardData = [];
+const gridEl = document.getElementById('grid');
+
+async function buildThumbnails() {
+    const fill = document.getElementById('loadFill');
+    for (let i = 0; i < effects.length; i++) {
+        const [name, cat, frag] = effects[i];
+        const prog = mkProgram(gl, frag);
+
+        const card = document.createElement('div');
+        card.className = 'card'; card.dataset.cat = cat; card.dataset.idx = i;
+
+        const img = document.createElement('img');
+        if (prog) {
+            img.src = renderToImage(prog, 1.5); // render at t=1.5 for interesting state
+            gl.deleteProgram(prog);
+        }
+        card.appendChild(img);
+
+        const label = document.createElement('div');
+        label.className = 'label';
+        label.innerHTML = `${name} <span>#${i+1}</span>`;
+        card.appendChild(label);
+
+        card.onclick = () => openPreview(i);
+        gridEl.appendChild(card);
+        cardData.push({name, cat, frag});
+
+        fill.style.width = ((i+1)/effects.length*100) + '%';
+        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0)); // yield to UI
+    }
+    document.getElementById('loading').style.display = 'none';
+}
+
+buildThumbnails();
+
+// Preview with live animation
+const pCanvas = document.getElementById('pCanvas');
+const pGL = pCanvas.getContext('webgl', {antialias: true});
+const pBuf = pGL.createBuffer();
+pGL.bindBuffer(pGL.ARRAY_BUFFER, pBuf);
+pGL.bufferData(pGL.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), pGL.STATIC_DRAW);
+
+let previewProg = null;
+let previewIdx = -1;
+
+function openPreview(idx) {
+    previewIdx = idx;
+    const {name, cat, frag} = cardData[idx];
+    document.getElementById('pName').textContent = `${name} (#${idx+1})`;
+    document.getElementById('pCat').textContent = categories[cat];
+    document.getElementById('preview').classList.add('open');
+
+    if (previewProg) pGL.deleteProgram(previewProg);
+    previewProg = mkProgram(pGL, frag);
+}
+
+function closePreview() {
+    document.getElementById('preview').classList.remove('open');
+    previewIdx = -1;
+}
+
+function navPreview(dir) {
+    if (previewIdx < 0) return;
+    // Find next visible card
+    const cards = [...document.querySelectorAll('.card')];
+    const visible = cards.filter(c => c.style.display !== 'none');
+    const curVis = visible.findIndex(c => parseInt(c.dataset.idx) === previewIdx);
+    const next = (curVis + dir + visible.length) % visible.length;
+    openPreview(parseInt(visible[next].dataset.idx));
+}
+
+function animatePreview(t) {
+    if (previewProg && document.getElementById('preview').classList.contains('open')) {
+        pGL.viewport(0, 0, pCanvas.width, pCanvas.height);
+        pGL.useProgram(previewProg);
+        pGL.uniform1f(pGL.getUniformLocation(previewProg, 'time'), t * 0.001);
+        pGL.bindBuffer(pGL.ARRAY_BUFFER, pBuf);
+        const loc = pGL.getAttribLocation(previewProg, 'p');
+        pGL.enableVertexAttribArray(loc);
+        pGL.vertexAttribPointer(loc, 2, pGL.FLOAT, false, 0, 0);
+        pGL.drawArrays(pGL.TRIANGLE_STRIP, 0, 4);
+    }
+    requestAnimationFrame(animatePreview);
+}
+requestAnimationFrame(animatePreview);
+
+document.getElementById('preview').onclick = (e) => { if (e.target.id === 'preview') closePreview(); };
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePreview();
+    if (e.key === 'ArrowLeft') navPreview(-1);
+    if (e.key === 'ArrowRight') navPreview(1);
+});
+</script>
+</body>
+</html>

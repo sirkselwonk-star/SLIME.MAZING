@@ -149,6 +149,139 @@ function generateMaze(grid, rows, cols) {
 
 // --- Build 3D Geometry ---
 
+/**
+ * For an L-junction (exactly 2 perpendicular walls), returns which corner-block
+ * quadrant is uncovered: 'NW' / 'NE' / 'SW' / 'SE'. Returns null for straight
+ * sections, T-junctions, crosses, or no walls. Used to compute miter offsets so
+ * walls join at a 45° diagonal instead of leaving a wallThickness-square gap.
+ */
+function cornerGapDirection(grid, r, c) {
+    const ne = (grid[r - 1] && grid[r - 1][c]) || null;
+    const nw = (grid[r - 1] && grid[r - 1][c - 1]) || null;
+    const se = (grid[r] && grid[r][c]) || null;
+    const sw = (grid[r] && grid[r][c - 1]) || null;
+
+    const hasN = !!((ne && ne.inside && ne.walls && ne.walls.W) ||
+                    (nw && nw.inside && nw.walls && nw.walls.E));
+    const hasS = !!((se && se.inside && se.walls && se.walls.W) ||
+                    (sw && sw.inside && sw.walls && sw.walls.E));
+    const hasE = !!((se && se.inside && se.walls && se.walls.N) ||
+                    (ne && ne.inside && ne.walls && ne.walls.S));
+    const hasW = !!((sw && sw.inside && sw.walls && sw.walls.N) ||
+                    (nw && nw.inside && nw.walls && nw.walls.S));
+
+    const perp = (hasN || hasS) && (hasE || hasW);
+    if (!perp) return null;
+    if (!hasN && !hasW) return 'NW';
+    if (!hasN && !hasE) return 'NE';
+    if (!hasS && !hasW) return 'SW';
+    if (!hasS && !hasE) return 'SE';
+    return null;  // T-junction or cross
+}
+
+/**
+ * Returns plan-view {SW, SE, NE, NW} corner positions [x, z] for one of a
+ * cell's four walls, with miter offsets applied at L-junctions so the wall's
+ * end-cap is a 45° diagonal that mates flush with the adjacent perpendicular
+ * wall. T-junctions/crosses use default rectangular footprint.
+ */
+function getWallFootprint(grid, r, c, dir, corridorSize, T, offsetX, offsetZ) {
+    const T2 = T / 2;
+    const x = c * corridorSize + offsetX;
+    const z = r * corridorSize + offsetZ;
+    const xR = x + corridorSize;
+    const zS = z + corridorSize;
+
+    let SW, SE, NE, NW;
+
+    if (dir === 'N') {
+        SW = [x, z + T2];   NW = [x, z - T2];
+        SE = [xR, z + T2];  NE = [xR, z - T2];
+        const g1 = cornerGapDirection(grid, r, c);
+        if (g1 === 'SW') { SW[0] -= T2; NW[0] += T2; }
+        else if (g1 === 'NW') { SW[0] += T2; NW[0] -= T2; }
+        const g2 = cornerGapDirection(grid, r, c + 1);
+        if (g2 === 'SE') { SE[0] += T2; NE[0] -= T2; }
+        else if (g2 === 'NE') { SE[0] -= T2; NE[0] += T2; }
+    } else if (dir === 'S') {
+        SW = [x, zS + T2];   NW = [x, zS - T2];
+        SE = [xR, zS + T2];  NE = [xR, zS - T2];
+        const g1 = cornerGapDirection(grid, r + 1, c);
+        if (g1 === 'SW') { SW[0] -= T2; NW[0] += T2; }
+        else if (g1 === 'NW') { SW[0] += T2; NW[0] -= T2; }
+        const g2 = cornerGapDirection(grid, r + 1, c + 1);
+        if (g2 === 'SE') { SE[0] += T2; NE[0] -= T2; }
+        else if (g2 === 'NE') { SE[0] -= T2; NE[0] += T2; }
+    } else if (dir === 'W') {
+        SW = [x - T2, zS];  SE = [x + T2, zS];
+        NW = [x - T2, z];   NE = [x + T2, z];
+        const g1 = cornerGapDirection(grid, r, c);
+        if (g1 === 'NW') { NW[1] -= T2; NE[1] += T2; }
+        else if (g1 === 'NE') { NW[1] += T2; NE[1] -= T2; }
+        const g2 = cornerGapDirection(grid, r + 1, c);
+        if (g2 === 'SW') { SW[1] += T2; SE[1] -= T2; }
+        else if (g2 === 'SE') { SW[1] -= T2; SE[1] += T2; }
+    } else { // 'E'
+        SW = [xR - T2, zS];  SE = [xR + T2, zS];
+        NW = [xR - T2, z];   NE = [xR + T2, z];
+        const g1 = cornerGapDirection(grid, r, c + 1);
+        if (g1 === 'NW') { NW[1] -= T2; NE[1] += T2; }
+        else if (g1 === 'NE') { NW[1] += T2; NE[1] -= T2; }
+        const g2 = cornerGapDirection(grid, r + 1, c + 1);
+        if (g2 === 'SW') { SW[1] += T2; SE[1] -= T2; }
+        else if (g2 === 'SE') { SW[1] -= T2; SE[1] += T2; }
+    }
+    return { SW, SE, NE, NW };
+}
+
+/**
+ * Build a wall mesh as a 5-face box (no bottom) using the plan-view footprint.
+ * The footprint may be a parallelogram-like polygon when miter offsets shift
+ * end vertices, so we build BufferGeometry directly rather than BoxGeometry.
+ *
+ * Each face gets its own 4 vertices (20 total) so:
+ *   - per-face UVs map (0..1, 0..1) — required by the Eyes Bleed shader's vUv
+ *   - computeVertexNormals produces flat shading instead of averaging across
+ *     adjacent faces at shared corners
+ */
+function buildMiteredWallGeo(THREE, footprint, height, centerX = 0, centerZ = 0) {
+    const { SW, SE, NE, NW } = footprint;
+    // Vertices are stored in mesh-local space (world position - center) so
+    // wall.position can carry the wall's center for downstream consumers.
+    const halfH = height / 2;
+    const bSW = [SW[0] - centerX, -halfH, SW[1] - centerZ];   const tSW = [SW[0] - centerX, halfH, SW[1] - centerZ];
+    const bSE = [SE[0] - centerX, -halfH, SE[1] - centerZ];   const tSE = [SE[0] - centerX, halfH, SE[1] - centerZ];
+    const bNE = [NE[0] - centerX, -halfH, NE[1] - centerZ];   const tNE = [NE[0] - centerX, halfH, NE[1] - centerZ];
+    const bNW = [NW[0] - centerX, -halfH, NW[1] - centerZ];   const tNW = [NW[0] - centerX, halfH, NW[1] - centerZ];
+
+    const positions = [];
+    const uvs = [];
+    const indices = [];
+    let v = 0;
+
+    // Add a quad as two triangles. p0..p3 must be CCW viewed from outside;
+    // UVs map p0=(0,0), p1=(1,0), p2=(1,1), p3=(0,1).
+    const addQuad = (p0, p1, p2, p3) => {
+        positions.push(...p0, ...p1, ...p2, ...p3);
+        uvs.push(0, 0,  1, 0,  1, 1,  0, 1);
+        indices.push(v, v + 1, v + 2,  v, v + 2, v + 3);
+        v += 4;
+    };
+
+    addQuad(bSW, bSE, tSE, tSW);  // South face (+z out)
+    addQuad(bSE, bNE, tNE, tSE);  // East  face (+x out)
+    addQuad(bNE, bNW, tNW, tNE);  // North face (-z out)
+    addQuad(bNW, bSW, tSW, tNW);  // West  face (-x out)
+    addQuad(tSW, tSE, tNE, tNW);  // Top   face (+y out)
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+}
+
 function buildMazeGeometry(grid, rows, cols, startPos, exitPos, THREE) {
     const wallHeight = 3;
     const wallThickness = 0.3;
@@ -215,42 +348,25 @@ function buildMazeGeometry(grid, rows, cols, startPos, exitPos, THREE) {
             mazeGroup.add(ceiling);
             ceilingMeshes[`${r},${c}`] = ceiling;
 
-            // Walls
-            if (cell.walls.N) {
-                const wall = new THREE.Mesh(
-                    new THREE.BoxGeometry(corridorSize, wallHeight, wallThickness),
-                    wallMaterial
-                );
-                wall.position.set(x + corridorSize / 2, wallHeight / 2, z);
+            // Walls — geometry includes miter offsets at L-corners so adjacent
+            // walls share a 45° diagonal seam (no pillar, no co-planar overlap
+            // that z-fights with per-wall shaders in Eyes Bleed mode).
+            // Mesh position is the wall's natural center (matching the old
+            // BoxGeometry placement) so gallery.js + weapons.js can read
+            // wall.position to anchor paintings, lights, and damage radii.
+            for (const dir of ['N', 'S', 'W', 'E']) {
+                if (!cell.walls[dir]) continue;
+                const fp = getWallFootprint(grid, r, c, dir, corridorSize, wallThickness, offsetX, offsetZ);
+                let cx, cz;
+                if (dir === 'N')      { cx = x + corridorSize / 2; cz = z; }
+                else if (dir === 'S') { cx = x + corridorSize / 2; cz = z + corridorSize; }
+                else if (dir === 'W') { cx = x;                    cz = z + corridorSize / 2; }
+                else /* 'E' */        { cx = x + corridorSize;     cz = z + corridorSize / 2; }
+                const geo = buildMiteredWallGeo(THREE, fp, wallHeight, cx, cz);
+                const wall = new THREE.Mesh(geo, wallMaterial);
+                wall.position.set(cx, wallHeight / 2, cz);
                 mazeGroup.add(wall);
-                wallMeshes[`${r},${c},N`] = wall;
-            }
-            if (cell.walls.S) {
-                const wall = new THREE.Mesh(
-                    new THREE.BoxGeometry(corridorSize, wallHeight, wallThickness),
-                    wallMaterial
-                );
-                wall.position.set(x + corridorSize / 2, wallHeight / 2, z + corridorSize);
-                mazeGroup.add(wall);
-                wallMeshes[`${r},${c},S`] = wall;
-            }
-            if (cell.walls.W) {
-                const wall = new THREE.Mesh(
-                    new THREE.BoxGeometry(wallThickness, wallHeight, corridorSize),
-                    wallMaterial
-                );
-                wall.position.set(x, wallHeight / 2, z + corridorSize / 2);
-                mazeGroup.add(wall);
-                wallMeshes[`${r},${c},W`] = wall;
-            }
-            if (cell.walls.E) {
-                const wall = new THREE.Mesh(
-                    new THREE.BoxGeometry(wallThickness, wallHeight, corridorSize),
-                    wallMaterial
-                );
-                wall.position.set(x + corridorSize, wallHeight / 2, z + corridorSize / 2);
-                mazeGroup.add(wall);
-                wallMeshes[`${r},${c},E`] = wall;
+                wallMeshes[`${r},${c},${dir}`] = wall;
             }
         }
     }
@@ -326,6 +442,16 @@ function getWallColliders(grid, rows, cols, corridorSize, offsetX, offsetZ, wall
     const wallThickness = 0.3;
     const wallHeight = 3;
 
+    // A wall is a perimeter wall if its neighbor cell is out of bounds or !inside.
+    // Perimeter walls are flagged so weapons.js can refuse to blow them out
+    // (lets the player look at the whole maze from outside, blowing memory).
+    const deltas = { N: [-1, 0], S: [1, 0], E: [0, 1], W: [0, -1] };
+    const isPerimeter = (r, c, dir) => {
+        const [dr, dc] = deltas[dir];
+        const nr = r + dr, nc = c + dc;
+        return !grid[nr] || !grid[nr][nc] || !grid[nr][nc].inside;
+    };
+
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
             const cell = grid[r][c];
@@ -340,7 +466,8 @@ function getWallColliders(grid, rows, cols, corridorSize, offsetX, offsetZ, wall
                     minY: 0, maxY: wallHeight,
                     minZ: z - wallThickness / 2, maxZ: z + wallThickness / 2,
                     mesh: wallMeshes ? wallMeshes[`${r},${c},N`] : null,
-                    gridRef: { row: r, col: c, dir: 'N' }
+                    gridRef: { row: r, col: c, dir: 'N' },
+                    isPerimeter: isPerimeter(r, c, 'N')
                 });
             }
             if (cell.walls.S) {
@@ -349,7 +476,8 @@ function getWallColliders(grid, rows, cols, corridorSize, offsetX, offsetZ, wall
                     minY: 0, maxY: wallHeight,
                     minZ: z + corridorSize - wallThickness / 2, maxZ: z + corridorSize + wallThickness / 2,
                     mesh: wallMeshes ? wallMeshes[`${r},${c},S`] : null,
-                    gridRef: { row: r, col: c, dir: 'S' }
+                    gridRef: { row: r, col: c, dir: 'S' },
+                    isPerimeter: isPerimeter(r, c, 'S')
                 });
             }
             if (cell.walls.W) {
@@ -358,7 +486,8 @@ function getWallColliders(grid, rows, cols, corridorSize, offsetX, offsetZ, wall
                     minY: 0, maxY: wallHeight,
                     minZ: z, maxZ: z + corridorSize,
                     mesh: wallMeshes ? wallMeshes[`${r},${c},W`] : null,
-                    gridRef: { row: r, col: c, dir: 'W' }
+                    gridRef: { row: r, col: c, dir: 'W' },
+                    isPerimeter: isPerimeter(r, c, 'W')
                 });
             }
             if (cell.walls.E) {
@@ -367,11 +496,16 @@ function getWallColliders(grid, rows, cols, corridorSize, offsetX, offsetZ, wall
                     minY: 0, maxY: wallHeight,
                     minZ: z, maxZ: z + corridorSize,
                     mesh: wallMeshes ? wallMeshes[`${r},${c},E`] : null,
-                    gridRef: { row: r, col: c, dir: 'E' }
+                    gridRef: { row: r, col: c, dir: 'E' },
+                    isPerimeter: isPerimeter(r, c, 'E')
                 });
             }
         }
     }
+
+    // No pillar colliders — walls are mitered to fill the corner block, and
+    // existing AABB colliders + player radius keep the player out of the
+    // wallThickness-square corner area at L-junctions.
 
     return colliders;
 }

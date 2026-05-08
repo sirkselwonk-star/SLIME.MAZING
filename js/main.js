@@ -1,20 +1,21 @@
 // main.js — Scene setup, render loop, game orchestration
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import {
     SLIME_SVG_PATH, CELL_SIZE,
     svgPathToPolygon, buildGrid, generateMaze,
     buildMazeGeometry, getWallColliders
-} from './maze.js';
-import { ShipControls } from './controls.js?v=10';
-import { HUD } from './hud.js';
-import { GameState } from './game.js';
-import { WeaponSystem } from './weapons.js';
-import { EnemyManager } from './enemies.js';
-import { SoundtrackManager } from './audio.js';
-import { GalleryManager } from './gallery.js?v=10';
-import { EyesBleedManager } from './eyesbleed.js';
-import { TouchControlsManager } from './touch-controls.js?v=10';
+} from './maze.js?v=30';
+import { ShipControls } from './controls.js?v=14';
+import { HUD } from './hud.js?v=27';
+import { GameState } from './game.js?v=18';
+import { WeaponSystem } from './weapons.js?v=14';
+import { EnemyManager } from './enemies.js?v=14';
+import { SoundtrackManager } from './audio.js?v=21';
+import { GalleryManager } from './gallery.js?v=25';
+import { EyesBleedManager } from './eyesbleed.js?v=14';
+import { TouchControlsManager } from './touch-controls.js?v=14';
 
 window.THREE = THREE;
 
@@ -116,6 +117,8 @@ function init() {
     // Soundtrack
     soundtrack = new SoundtrackManager();
 
+    gameState.onOreCollected = () => soundtrack.playCrystalSound();
+
     // M key to toggle mute, B key to toggle Eyes Bleed
     document.addEventListener('keydown', e => {
         if (e.code === 'KeyM') {
@@ -203,6 +206,9 @@ function buildLevel() {
 
         // Build grid
         gridData = buildGrid(polygon);
+        // Stash polygon in grid units (each cell = 1.0) so the minimap
+        // can scale by cellW/cellH directly without knowing CELL_SIZE.
+        gridData.polygon = polygon.map(p => ({ x: p.x / CELL_SIZE, y: p.y / CELL_SIZE }));
 
         // Generate maze
         const { start, exit } = generateMaze(gridData.grid, gridData.rows, gridData.cols);
@@ -265,10 +271,119 @@ function buildLevel() {
             if (loadingEl) loadingEl.style.display = 'none';
             gallery.cacheWorldPositions();
             gameState.slimesTotal = gallery.paintings.length;
+            // Pre-compile every material so the first shot/explosion/death
+            // doesn't trigger a frame-blocking shader compile.
+            renderer.compile(scene, camera);
         });
 
         // Eyes Bleed manager
         eyesBleed = new EyesBleedManager();
+
+        // Card slab landmarks at start, exit, and a few dead-ends
+        placeCardSlabs();
+    });
+}
+
+// Loaded once and cached at module level — clones added per level
+let cardSlabTemplate = null;
+let cardSlabsThisLevel = [];
+
+// Target physical height; bottom rests on the floor.
+const CARD_SLAB_HEIGHT = 2.0;
+
+function loadCardSlab() {
+    if (cardSlabTemplate) return Promise.resolve(cardSlabTemplate);
+    return new Promise((resolve, reject) => {
+        new GLTFLoader().load(
+            'assets/card_slab.glb',
+            (gltf) => {
+                const raw = gltf.scene;
+                const box = new THREE.Box3().setFromObject(raw);
+                const size = box.getSize(new THREE.Vector3());
+                const scale = size.y > 0 ? CARD_SLAB_HEIGHT / size.y : 1;
+
+                // Wrap so per-clone position.y=0 sits the slab's bottom on
+                // the floor regardless of where the pivot was in Blender.
+                raw.scale.setScalar(scale);
+                raw.position.y = -box.min.y * scale;
+                const wrapper = new THREE.Group();
+                wrapper.add(raw);
+                cardSlabTemplate = wrapper;
+
+                console.log(`Card slab loaded: native size ${size.y.toFixed(3)}m, scale ${scale.toFixed(2)}`);
+                resolve(cardSlabTemplate);
+            },
+            undefined,
+            reject
+        );
+    });
+}
+
+function placeCardSlabs() {
+    loadCardSlab().then(template => {
+        if (!mazeData || !gridData) return;
+        const { grid, rows, cols } = gridData;
+        const { corridorSize, offsetX, offsetZ, startWorld, exitWorld } = mazeData;
+
+        // Find dead-end cells (exactly 1 open passage)
+        const deadEnds = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const cell = grid[r][c];
+                if (!cell.inside) continue;
+                const openCount = Object.values(cell.walls).filter(w => !w).length;
+                if (openCount !== 1) continue;
+                deadEnds.push({
+                    r, c,
+                    openDir: ['N','S','E','W'].find(d => !cell.walls[d]),
+                    x: c * corridorSize + offsetX + corridorSize / 2,
+                    z: r * corridorSize + offsetZ + corridorSize / 2
+                });
+            }
+        }
+
+        // Pick 4 dead-ends spread out (greedy farthest-point sampling)
+        const picked = [];
+        if (deadEnds.length > 0) {
+            picked.push(deadEnds[Math.floor(Math.random() * deadEnds.length)]);
+            const target = Math.min(4, deadEnds.length);
+            while (picked.length < target) {
+                let best = null, bestDist = -1;
+                for (const d of deadEnds) {
+                    if (picked.includes(d)) continue;
+                    let minDist = Infinity;
+                    for (const p of picked) {
+                        const dx = d.x - p.x, dz = d.z - p.z;
+                        minDist = Math.min(minDist, dx*dx + dz*dz);
+                    }
+                    if (minDist > bestDist) { bestDist = minDist; best = d; }
+                }
+                if (!best) break;
+                picked.push(best);
+            }
+        }
+
+        // Build placements: start, exit, dead-ends. yRot is the angle the slab
+        // needs so its +Z front faces the open corridor.
+        const placements = [
+            { x: startWorld.x, z: startWorld.z, yRot: 0,           label: 'start' },
+            { x: exitWorld.x,  z: exitWorld.z,  yRot: 0,           label: 'exit' },
+        ];
+        const dirRot = { N: Math.PI, S: 0, E: -Math.PI / 2, W: Math.PI / 2 };
+        for (const d of picked) {
+            placements.push({ x: d.x, z: d.z, yRot: dirRot[d.openDir], label: 'deadend' });
+        }
+
+        for (const p of placements) {
+            const slab = template.clone(true);
+            slab.userData.baseY = 0.5;            // hover height above floor
+            slab.userData.phase = Math.random() * Math.PI * 2;
+            slab.position.set(p.x, slab.userData.baseY, p.z);
+            scene.add(slab);
+            cardSlabsThisLevel.push(slab);
+        }
+    }).catch(err => {
+        console.warn('Card slab load failed:', err);
     });
 }
 
@@ -295,10 +410,13 @@ function restartGame() {
     if (enemyManager) enemyManager.cleanup();
     if (gallery) gallery.cleanup();
     if (eyesBleed) eyesBleed.cleanup();
+    for (const slab of cardSlabsThisLevel) scene.remove(slab);
+    cardSlabsThisLevel = [];
 
     // Reset game state
     gameState = new GameState();
     window._gameState = gameState;
+    gameState.onOreCollected = () => soundtrack.playCrystalSound();
 
     // Rebuild maze
     buildLevel();
@@ -408,16 +526,14 @@ function animate() {
 
         // Handle firing — gun (left click / held), rocket (right click)
         if (controls.gunHeld) controls.firing.gun = true;
-        if (controls.firing.gun && weapons.canFire('gun') && gameState.gunAmmo > 0) {
+        if (controls.firing.gun && weapons.canFire('gun')) {
             weapons.fire('gun', camera);
             weapons.startCooldown('gun');
-            gameState.gunAmmo--;
             soundtrack.playGunSound();
         }
-        if (controls.firing.rocket && weapons.canFire('rocket') && gameState.rocketAmmo > 0) {
+        if (controls.firing.rocket && weapons.canFire('rocket')) {
             weapons.fire('rocket', camera);
             weapons.startCooldown('rocket');
-            gameState.rocketAmmo--;
             soundtrack.playRocketSound();
         }
         controls.firing.gun = false;
@@ -460,6 +576,18 @@ function animate() {
 
         // Distance-cull plates/art + sync frame instances with wall destruction
         if (gallery) gallery.update(camera);
+
+        // Animate card slab landmarks — slow spin, gentle bob + multi-axis tilt
+        if (cardSlabsThisLevel.length > 0) {
+            const t = clock.getElapsedTime();
+            for (const slab of cardSlabsThisLevel) {
+                const ph = slab.userData.phase;
+                slab.rotation.y = t * 0.5 + ph;
+                slab.rotation.x = Math.sin(t * 0.7 + ph) * 0.04;
+                slab.rotation.z = Math.sin(t * 0.8 + ph * 1.3) * 0.06;
+                slab.position.y = slab.userData.baseY + Math.sin(t * 1.2 + ph) * 0.1;
+            }
+        }
 
         // Update visited cells for minimap
         const gridPos = getPlayerGridPos();
@@ -505,9 +633,9 @@ function animate() {
         }
     }
 
-    // Get heading for compass
+    // Get heading for compass — bearing convention (N=0, E=90, S=180, W=270).
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    const heading = Math.atan2(forward.x, forward.z);
+    const heading = Math.atan2(forward.x, -forward.z);
 
     // Draw HUD
     const gridPos2 = getPlayerGridPos();
@@ -515,6 +643,7 @@ function animate() {
         grid: gridData?.grid,
         rows: gridData?.rows,
         cols: gridData?.cols,
+        polygon: gridData?.polygon,
         playerGridPos: gridPos2,
         startPos: mazeData ? {
             row: Math.floor((mazeData.startWorld.z - mazeData.offsetZ) / mazeData.corridorSize),

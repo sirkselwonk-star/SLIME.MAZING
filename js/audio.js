@@ -1299,6 +1299,57 @@ export class SoundtrackManager {
 
     // ========== Weapon SFX ==========
 
+    playCrystalSound() {
+        if (!this.ctx || this.muted) return;
+        const ctx = this.ctx;
+        const t = ctx.currentTime;
+
+        // 10 variations — same crystalline character, different pitch/timbre.
+        // Picked at random per pickup so consecutive collects don't sound identical.
+        const variations = [
+            { freqs: [660, 990, 1320],   peaks: [0.07, 0.04, 0.02], type: 'sine'     }, // warm low
+            { freqs: [880, 1320, 1760],  peaks: [0.07, 0.04, 0.02], type: 'sine'     }, // standard
+            { freqs: [1100, 1650, 2200], peaks: [0.06, 0.03, 0.02], type: 'sine'     }, // bright high
+            { freqs: [880, 1108, 1318],  peaks: [0.06, 0.05, 0.04], type: 'sine'     }, // major triad
+            { freqs: [880, 1047, 1318],  peaks: [0.06, 0.05, 0.04], type: 'sine'     }, // minor triad
+            { freqs: [880, 1318, 1760],  peaks: [0.06, 0.05, 0.04], type: 'sine'     }, // perfect fifth
+            { freqs: [660, 1320, 2640],  peaks: [0.07, 0.04, 0.02], type: 'sine'     }, // octave stack
+            { freqs: [880, 893, 1320],   peaks: [0.05, 0.05, 0.03], type: 'sine'     }, // detuned shimmer
+            { freqs: [780, 1170, 1560],  peaks: [0.07, 0.04, 0.02], type: 'triangle' }, // softer triangle
+            { freqs: [990, 1485, 1980],  peaks: [0.06, 0.04, 0.02], type: 'sine'     }, // raised D
+        ];
+        const v = variations[Math.floor(Math.random() * variations.length)];
+
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 2800;
+        lp.Q.value = 0.7;
+        lp.connect(ctx.destination);
+
+        let pending = v.freqs.length;
+        for (let i = 0; i < v.freqs.length; i++) {
+            const osc = ctx.createOscillator();
+            osc.type = v.type;
+            osc.frequency.setValueAtTime(v.freqs[i], t);
+            osc.frequency.exponentialRampToValueAtTime(v.freqs[i] * 1.08, t + 0.5);
+
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(v.peaks[i], t + 0.012);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+
+            osc.connect(g);
+            g.connect(lp);
+            osc.start(t);
+            osc.stop(t + 0.65);
+            osc.onended = () => {
+                osc.disconnect();
+                g.disconnect();
+                if (--pending === 0) lp.disconnect();
+            };
+        }
+    }
+
     playGunSound() {
         if (!this.ctx || this.muted) return;
         const ctx = this.ctx;
@@ -1323,6 +1374,7 @@ export class SoundtrackManager {
 
         osc.start(t);
         osc.stop(t + 0.06);
+        osc.onended = () => { osc.disconnect(); hp.disconnect(); gain.disconnect(); };
     }
 
     playRocketSound() {
@@ -1349,6 +1401,7 @@ export class SoundtrackManager {
 
         noise.start(t);
         noise.stop(t + 0.3);
+        noise.onended = () => { noise.disconnect(); bp.disconnect(); gain.disconnect(); };
     }
 
     playExplosionSound() {
@@ -1387,5 +1440,9 @@ export class SoundtrackManager {
         osc.stop(t + 0.4);
         noise.start(t);
         noise.stop(t + 0.4);
+        osc.onended = () => { osc.disconnect(); oscGain.disconnect(); };
+        noise.onended = () => {
+            noise.disconnect(); lp.disconnect(); noiseGain.disconnect();
+        };
     }
 }
