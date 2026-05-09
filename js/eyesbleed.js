@@ -320,12 +320,13 @@ export class EyesBleedManager {
 
     /**
      * Activate Eyes Bleed mode — swap wall materials to animated shaders.
-     * @param {Object} wallMeshes - dict keyed "r,c,dir" → THREE.Mesh
-     * @param {Object} [floorMeshes] - dict keyed "r,c" → THREE.Mesh
-     * @param {Object} [ceilingMeshes] - dict keyed "r,c" → THREE.Mesh
+     * @param {Object} wallZoneMeshes - dict keyed "zoneR,zoneC" → THREE.Mesh
+     *                 (one Mesh per 6×6 cell zone holding all that zone's walls)
+     * @param {Object} [floorMeshes] - dict keyed "r,c" → position stub
+     * @param {Object} [ceilingMeshes] - dict keyed "r,c" → position stub
      * @param {Object} [renderContext] - { renderer, scene, camera } for V2 particles
      */
-    activate(wallMeshes, floorMeshes, ceilingMeshes, renderContext = {}) {
+    activate(wallZoneMeshes, floorMeshes, ceilingMeshes, renderContext = {}) {
         if (this._active) return;
         this._active = true;
 
@@ -344,60 +345,91 @@ export class EyesBleedManager {
         });
         this._shaderMaterials = materials;
 
-        // Assign zones and swap materials
+        // Assign zones and swap materials. Walls are now merged per zone, so
+        // we only need to swap one material per zone (~25 swaps) instead of
+        // iterating every wall.
         const seed = Math.floor(Math.random() * 99999);
-        for (const key in wallMeshes) {
-            const mesh = wallMeshes[key];
-            if (!mesh || !mesh.visible) continue;
+        for (const zoneKey in wallZoneMeshes) {
+            const mesh = wallZoneMeshes[zoneKey];
+            if (!mesh) continue;
 
-            // Parse row,col from key "r,c,dir"
-            const parts = key.split(',');
-            const row = parseInt(parts[0]);
-            const col = parseInt(parts[1]);
-
-            // Zone: 6x6 cell blocks
-            const zoneR = Math.floor(row / 6);
-            const zoneC = Math.floor(col / 6);
-
-            // Hash zone to pick effect index (0..24)
+            const parts = zoneKey.split(',');
+            const zoneR = parseInt(parts[0]);
+            const zoneC = parseInt(parts[1]);
             const zoneHash = this._hashZone(zoneR, zoneC, seed);
             const effectIdx = zoneHash % EFFECTS.length;
 
-            // Store original material
             this._originalMaterials.set(mesh, mesh.material);
-
-            // Swap to shader material
             mesh.material = materials[effectIdx];
         }
 
-        // Apply effects to ~20% of floor/ceiling tiles (sparse placement)
-        const surfaceSets = [floorMeshes, ceilingMeshes];
-        for (const meshDict of surfaceSets) {
-            if (!meshDict) continue;
-            for (const key in meshDict) {
-                const mesh = meshDict[key];
-                if (!mesh || !mesh.visible) continue;
+        // Sparse floor/ceiling effect cells. Floor and ceiling now render via
+        // shared InstancedMesh, so we can't swap material per-instance like
+        // the original implementation. Instead: pick ~20% of cells, hide that
+        // base instance (zero-scale matrix), and drop a per-cell effect Mesh
+        // at the same position with the chosen ShaderMaterial. Reverse on
+        // deactivate. This restores the per-cell mixed-effect look that made
+        // the EyesBleed mode feel chaotic across all surfaces.
+        const sc = renderContext.scene;
+        const corridorSize = renderContext.corridorSize || 2.5;
+        if (sc && (floorMeshes || ceilingMeshes)) {
+            this._effectGeoFloor = new THREE.PlaneGeometry(corridorSize, corridorSize);
+            this._effectGeoFloor.rotateX(-Math.PI / 2);
+            this._effectGeoCeiling = new THREE.PlaneGeometry(corridorSize, corridorSize);
+            this._effectGeoCeiling.rotateX(Math.PI / 2);
+            this._effectMeshes = [];
+            this._hiddenInstances = []; // for restoration on deactivate
+            const hideMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
-                const parts = key.split(',');
-                const row = parseInt(parts[0]);
-                const col = parseInt(parts[1]);
+            const placeOnSurface = (meshDict, isFloor) => {
+                if (!meshDict) return;
+                const geo = isFloor ? this._effectGeoFloor : this._effectGeoCeiling;
+                for (const key in meshDict) {
+                    const stub = meshDict[key];
+                    if (!stub || !stub.visible) continue;
 
-                // Zone hash for effect selection (matches surrounding walls)
-                const zoneR = Math.floor(row / 6);
-                const zoneC = Math.floor(col / 6);
-                const zoneHash = this._hashZone(zoneR, zoneC, seed);
+                    const parts = key.split(',');
+                    const row = parseInt(parts[0]);
+                    const col = parseInt(parts[1]);
+                    const zoneR = Math.floor(row / 6);
+                    const zoneC = Math.floor(col / 6);
+                    const zoneHash = this._hashZone(zoneR, zoneC, seed);
 
-                // Sparse: only ~20% of cells get the effect
-                if ((zoneHash + row * 31 + col * 17) % 5 !== 0) continue;
+                    // Sparse: only ~20% of cells get the effect
+                    if ((zoneHash + row * 31 + col * 17) % 5 !== 0) continue;
 
-                const effectIdx = zoneHash % EFFECTS.length;
-                this._originalMaterials.set(mesh, mesh.material);
-                mesh.material = materials[effectIdx];
+                    const effectIdx = zoneHash % EFFECTS.length;
+                    const effectMesh = new THREE.Mesh(geo, materials[effectIdx]);
+                    effectMesh.position.copy(stub.position);
+                    sc.add(effectMesh);
+                    this._effectMeshes.push(effectMesh);
+
+                    // Hide the base instance so we just see the effect
+                    if (stub.instancedMesh && stub.instanceIdx != null) {
+                        stub.instancedMesh.setMatrixAt(stub.instanceIdx, hideMatrix);
+                        this._hiddenInstances.push({
+                            mesh: stub.instancedMesh,
+                            idx: stub.instanceIdx,
+                            originalPos: stub.position.clone()
+                        });
+                    }
+                }
+            };
+            placeOnSurface(floorMeshes, true);
+            placeOnSurface(ceilingMeshes, false);
+
+            // Push the hidden-instance updates to the GPU
+            const seenInstanced = new Set();
+            for (const h of this._hiddenInstances) {
+                if (!seenInstanced.has(h.mesh)) {
+                    h.mesh.instanceMatrix.needsUpdate = true;
+                    seenInstanced.add(h.mesh);
+                }
             }
         }
 
         // V2: particles + overlay (only if render context supplied)
-        const { renderer, scene: sc } = renderContext;
+        const { renderer } = renderContext;
         if (sc) {
             this._scene = sc;
             this._createParticles(sc, floorMeshes, ceilingMeshes);
@@ -452,6 +484,25 @@ export class EyesBleedManager {
             this._overlayCanvas = null;
             this._overlayCtx = null;
         }
+
+        // Floor/ceiling effect Meshes — remove from scene; their materials are
+        // already disposed above as part of _shaderMaterials. Restore the
+        // hidden InstancedMesh entries to their original positions.
+        for (const m of this._effectMeshes || []) {
+            if (m.parent) m.parent.remove(m);
+        }
+        this._effectMeshes = [];
+        const seenInstanced = new Set();
+        const tmpMat4 = new THREE.Matrix4();
+        for (const h of this._hiddenInstances || []) {
+            tmpMat4.makeTranslation(h.originalPos.x, h.originalPos.y, h.originalPos.z);
+            h.mesh.setMatrixAt(h.idx, tmpMat4);
+            seenInstanced.add(h.mesh);
+        }
+        for (const inst of seenInstanced) inst.instanceMatrix.needsUpdate = true;
+        this._hiddenInstances = [];
+        if (this._effectGeoFloor) { this._effectGeoFloor.dispose(); this._effectGeoFloor = null; }
+        if (this._effectGeoCeiling) { this._effectGeoCeiling.dispose(); this._effectGeoCeiling = null; }
 
         this._scene = null;
     }

@@ -1,5 +1,7 @@
 // game.js — Ore spawning, collection, exit detection
 
+import { random } from './rng.js?v=1';
+
 export class GameState {
     constructor() {
         this.state = 'MENU'; // MENU, PLAYING, LEVEL_COMPLETE
@@ -61,7 +63,7 @@ export class GameState {
                 if (openWalls === 1) {
                     // Dead end — always place ore
                     placeOre = true;
-                } else if (Math.random() < 0.15) {
+                } else if (random() < 0.15) {
                     // Random chance in corridors
                     placeOre = true;
                 }

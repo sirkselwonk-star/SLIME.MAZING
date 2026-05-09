@@ -49,8 +49,8 @@ except ImportError:
     sys.exit("requests not installed. Run: pip install requests")
 
 # --- Art atlas config ---
-CELL_SIZE = 512                       # full cell size in atlas (includes bleed)
-BLEED = 16                            # replicated edge-pixel gutter per cell side
+CELL_SIZE = 256                       # full cell size in atlas (includes bleed)
+BLEED = 8                             # replicated edge-pixel gutter per cell side
 INNER_TILE = CELL_SIZE - 2 * BLEED    # 480 — actual painted tile area
 GRID_SIZE = 8                         # 8x8 = 64 slots per atlas sheet
 ATLAS_SIZE = CELL_SIZE * GRID_SIZE    # 4096
@@ -253,6 +253,12 @@ def build_hires_one(label, src_img):
     safe = hires_name(label)
     png_path = HIRES_DIR / f"{safe}.png"
     ktx2_path = HIRES_DIR / f"{safe}.ktx2"
+    # Hires resolution is independent of CELL_SIZE/BLEED, so re-bakes triggered
+    # by atlas-only knob changes don't need to re-encode any of these. toktx
+    # encoding dominates total build time — skipping idempotent rewrites turns
+    # a ~10 minute rebuild into ~1 minute.
+    if ktx2_path.exists():
+        return label, f"hires/{safe}.ktx2"
     resized = src_img.resize((HIRES_SIZE, HIRES_SIZE), Image.LANCZOS)
     resized.save(str(png_path), "PNG")
     success = encode_ktx2(png_path, ktx2_path)

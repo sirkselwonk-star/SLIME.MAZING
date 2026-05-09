@@ -44,6 +44,45 @@ export class WeaponSystem {
             this.scene.add(light);
             this._explosionLights.push(light);
         }
+
+        // Pooled spark + explosion meshes. The previous version allocated a
+        // fresh SphereGeometry + MeshBasicMaterial per impact and disposed
+        // them ~0.2-0.4s later — under sustained fire that's hundreds of
+        // GC-collectible objects per minute, the dominant source of pre-GC
+        // heap growth during play. Pools are sized for peak concurrency:
+        // gun fire rate 0.15s × spark lifetime 0.2s ≈ 2 alive, rocket
+        // cooldown 0.8s × explosion lifetime 0.4s ≈ 1 alive; double for
+        // chain reactions. Materials are per-mesh so the opacity-fade
+        // animation doesn't bleed between simultaneously-alive effects.
+        this._sparkGeo = new THREE.SphereGeometry(0.15, 6, 6);
+        this._sparkPool = [];
+        for (let i = 0; i < 8; i++) {
+            const mat = new THREE.MeshBasicMaterial({
+                color: 0x4ade80, transparent: true, opacity: 1
+            });
+            const mesh = new THREE.Mesh(this._sparkGeo, mat);
+            mesh.visible = false;
+            this.scene.add(mesh);
+            this._sparkPool.push(mesh);
+        }
+        this._explosionGeo = new THREE.SphereGeometry(0.5, 12, 12);
+        this._explosionPool = [];
+        for (let i = 0; i < 4; i++) {
+            const mat = new THREE.MeshBasicMaterial({
+                color: 0xff6600, transparent: true, opacity: 1
+            });
+            const mesh = new THREE.Mesh(this._explosionGeo, mat);
+            mesh.visible = false;
+            this.scene.add(mesh);
+            this._explosionPool.push(mesh);
+        }
+    }
+
+    _acquireFromPool(pool) {
+        for (const m of pool) {
+            if (!m.visible) return m;
+        }
+        return null; // Pool exhausted — caller drops the effect
     }
 
     fire(type, camera) {
@@ -54,7 +93,10 @@ export class WeaponSystem {
         let mesh, speed, lifetime, damage, isRocket = false, blastRadius = 0;
 
         if (type === 'gun') {
-            mesh = new THREE.Mesh(this.gunGeo, this.gunMat.clone());
+            // Share the WeaponSystem's gunMat directly — projectiles never
+            // modify their own material, so cloning leaks an extra Material
+            // per shot (and was never disposed at projectile death).
+            mesh = new THREE.Mesh(this.gunGeo, this.gunMat);
             speed = 40;
             lifetime = 2;
             damage = 1;
@@ -63,7 +105,7 @@ export class WeaponSystem {
             this.muzzleFlash.intensity = 3;
             this.muzzleTimer = 0.05;
         } else {
-            mesh = new THREE.Mesh(this.rocketGeo, this.rocketMat.clone());
+            mesh = new THREE.Mesh(this.rocketGeo, this.rocketMat);
             // No per-rocket PointLight; same recompile concern as enemy lights.
             speed = 20;
             lifetime = 3;
@@ -177,7 +219,9 @@ export class WeaponSystem {
             const fx = this.effects[i];
             fx.age += dt;
             if (fx.age >= fx.lifetime) {
-                this.scene.remove(fx.mesh);
+                // Pooled — return the mesh to its pool by hiding it. The
+                // next spawn will reacquire it. No allocation churn.
+                fx.mesh.visible = false;
                 // Pooled light: zero intensity to free the slot, but keep
                 // it in the scene so the light count stays constant.
                 if (fx.light) fx.light.intensity = 0;
@@ -244,26 +288,22 @@ export class WeaponSystem {
     }
 
     _spawnSpark(pos) {
-        const THREE = this.THREE;
-        const geo = new THREE.SphereGeometry(0.15, 6, 6);
-        const mat = new THREE.MeshBasicMaterial({
-            color: 0x4ade80, transparent: true, opacity: 1
-        });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = this._acquireFromPool(this._sparkPool);
+        if (!mesh) return; // pool exhausted — drop the effect
         mesh.position.copy(pos);
-        this.scene.add(mesh);
+        mesh.scale.setScalar(1);
+        mesh.material.opacity = 1;
+        mesh.visible = true;
         this.effects.push({ mesh, age: 0, lifetime: 0.2, light: null, startIntensity: 0 });
     }
 
     _spawnExplosion(pos) {
-        const THREE = this.THREE;
-        const geo = new THREE.SphereGeometry(0.5, 12, 12);
-        const mat = new THREE.MeshBasicMaterial({
-            color: 0xff6600, transparent: true, opacity: 1
-        });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = this._acquireFromPool(this._explosionPool);
+        if (!mesh) return; // pool exhausted
         mesh.position.copy(pos);
-        this.scene.add(mesh);
+        mesh.scale.setScalar(1);
+        mesh.material.opacity = 1;
+        mesh.visible = true;
 
         // Take a pooled light slot if free; if all in use, mesh still flashes.
         let light = null;
@@ -291,15 +331,38 @@ export class WeaponSystem {
     }
 
     cleanup() {
+        // Projectiles share this.gunGeo/Mat / this.rocketGeo/Mat — only detach.
         for (const proj of this.projectiles) this.scene.remove(proj.mesh);
         this.projectiles = [];
+        // Effects use pooled meshes — just hide and forget; pool gets disposed below.
         for (const fx of this.effects) {
-            this.scene.remove(fx.mesh);
+            fx.mesh.visible = false;
             if (fx.light) fx.light.intensity = 0;
         }
         this.effects = [];
         if (this.muzzleFlash) this.scene.remove(this.muzzleFlash);
         for (const light of this._explosionLights || []) this.scene.remove(light);
         this._explosionLights = [];
+
+        // Spark / explosion pools share one geometry per pool but each mesh
+        // owns its own material (per-mesh opacity).
+        for (const m of this._sparkPool) {
+            this.scene.remove(m);
+            m.material.dispose();
+        }
+        this._sparkPool = [];
+        this._sparkGeo.dispose();
+        for (const m of this._explosionPool) {
+            this.scene.remove(m);
+            m.material.dispose();
+        }
+        this._explosionPool = [];
+        this._explosionGeo.dispose();
+
+        // Free the shared projectile resources so a new WeaponSystem can be built.
+        this.gunGeo.dispose();
+        this.gunMat.dispose();
+        this.rocketGeo.dispose();
+        this.rocketMat.dispose();
     }
 }

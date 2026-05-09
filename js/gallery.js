@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { random } from './rng.js?v=1';
 
 // Module-level state — persists across level restarts
 let atlasTextures = null;   // Array of THREE.Texture (one per art atlas sheet)
@@ -9,18 +10,39 @@ let plateTexture = null;    // Single THREE.Texture for nameplate atlas
 let manifest = null;        // { tileSize, gridSize, atlasCount, plate, tiles }
 let ktx2Supported = null;   // null = untested, true/false after first load
 
-// Shared geometry/material — created once
-let sharedFrameGeo, sharedArtGeo, sharedPlateGeo, sharedFrameMat;
+// Shared geometry/material — created once. Frame is shared across all paintings
+// via InstancedMesh; the art and plate geometries must be per-painting because
+// each one bakes its own atlas tile UVs into the uv attribute (instead of
+// cloning the atlas texture and setting offset/repeat — that was costing one
+// GPU texture upload per painting).
+let sharedFrameGeo, sharedFrameMat;
 
 function ensureSharedResources(THREE) {
     if (!sharedFrameGeo) {
         sharedFrameGeo = new THREE.PlaneGeometry(1.6, 1.6);
-        sharedArtGeo = new THREE.PlaneGeometry(1.4, 1.4);
-        sharedPlateGeo = new THREE.PlaneGeometry(0.9, 0.14);
         sharedFrameMat = new THREE.MeshStandardMaterial({
             color: 0x1a1008, roughness: 0.8, metalness: 0.2
         });
     }
+}
+
+/**
+ * Build a PlaneGeometry whose UVs already reference a sub-rectangle of an
+ * atlas texture. Lets us share the atlas texture across paintings (no clone)
+ * while each painting still samples its own tile.
+ *
+ * Three.js PlaneGeometry vertex order is top-left, top-right, bottom-left,
+ * bottom-right with default UVs (0,1)(1,1)(0,0)(1,0).
+ */
+function makeAtlasPlane(THREE, width, height, u0, v0, u1, v1) {
+    const geo = new THREE.PlaneGeometry(width, height);
+    const uvs = geo.attributes.uv;
+    uvs.setXY(0, u0, v1);
+    uvs.setXY(1, u1, v1);
+    uvs.setXY(2, u0, v0);
+    uvs.setXY(3, u1, v0);
+    uvs.needsUpdate = true;
+    return geo;
 }
 
 /**
@@ -149,14 +171,14 @@ export class GalleryManager {
 
             // Shuffle wall keys
             for (let i = keys.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
+                const j = Math.floor(random() * (i + 1));
                 [keys[i], keys[j]] = [keys[j], keys[i]];
             }
 
             // Shuffle tile names
             const shuffledTiles = [...tileNames];
             for (let i = shuffledTiles.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
+                const j = Math.floor(random() * (i + 1));
                 [shuffledTiles[i], shuffledTiles[j]] = [shuffledTiles[j], shuffledTiles[i]];
             }
 
@@ -175,12 +197,23 @@ export class GalleryManager {
             const invPlateCols = 1 / manifest.plate.cols;
             const invPlateRows = 1 / manifest.plate.rows;
 
+            // Single shared plate material — every nameplate samples the same
+            // texture, just with different baked UVs per geometry. Was 100×
+            // cloned-with-offset textures (one GPU upload each).
+            this._sharedPlateMat = new THREE.MeshBasicMaterial({
+                map: plateTexture, transparent: true
+            });
+
             // Hires streaming infra (per-painting 2048² textures lazy-loaded
             // when player is close). Only viable when KTX2 is supported.
             this._hiresCache = new Map();          // label -> { texture, lastAccess }
             this._hiresLoading = new Set();        // labels currently being fetched
             this._hiresActiveLabels = new Set();   // labels currently swapped into a material
-            this._hiresCacheMax = 16;
+            this._labelToPainting = new Map();     // label -> painting (for O(1) eviction)
+            // GPU budget: each cached hires is a 2K UASTC KTX2 with mips
+            // (~5.3 MB GPU). 8 entries ≈ 42 MB worst case. The hard-cap
+            // logic in _evictLRU enforces this even in dense corridors.
+            this._hiresCacheMax = 8;
             this._maxAniso = renderer.capabilities.getMaxAnisotropy();
             if (ktx2Supported !== false) {
                 this._hiresLoader = new KTX2Loader()
@@ -231,44 +264,50 @@ export class GalleryManager {
                 group.position.set(lx, ly, lz);
                 group.rotation.y = yRot;
 
-                const artTex = atlasTextures[tile.atlas].clone();
-                artTex.needsUpdate = true;
-                artTex.repeat.set(uvScale, uvScale);
-                artTex.offset.set(
-                    tile.col * cellStep + innerOffsetUV,
-                    tile.row * cellStep + innerOffsetUV
-                );
+                // Bake atlas UVs into the geometry instead of cloning the
+                // shared atlas texture and setting offset/repeat. Material is
+                // still per-painting because hires swapping mutates .map.
+                const u0 = tile.col * cellStep + innerOffsetUV;
+                const v0 = tile.row * cellStep + innerOffsetUV;
+                const artGeo = makeAtlasPlane(THREE, 1.4, 1.4, u0, v0, u0 + uvScale, v0 + uvScale);
+                const sharedAtlasTex = atlasTextures[tile.atlas];
                 const artMat = new THREE.MeshStandardMaterial({
-                    map: artTex,
+                    map: sharedAtlasTex,
                     roughness: 0.5,
                     metalness: 0.0
                 });
-                const art = new THREE.Mesh(sharedArtGeo, artMat);
+                const art = new THREE.Mesh(artGeo, artMat);
                 art.position.z = 0.01;
                 group.add(art);
 
-                const pTex = plateTexture.clone();
-                pTex.needsUpdate = true;
-                pTex.repeat.set(invPlateCols, invPlateRows);
-                pTex.offset.set(tile.plateCol * invPlateCols, tile.plateRow * invPlateRows);
-                const plateMat = new THREE.MeshBasicMaterial({
-                    map: pTex, transparent: true
-                });
-                const plate = new THREE.Mesh(sharedPlateGeo, plateMat);
+                // Plate: shared material across all paintings, per-painting
+                // baked UVs.
+                const pu0 = tile.plateCol * invPlateCols;
+                const pv0 = tile.plateRow * invPlateRows;
+                const plateGeo = makeAtlasPlane(
+                    THREE, 0.9, 0.14,
+                    pu0, pv0, pu0 + invPlateCols, pv0 + invPlateRows
+                );
+                const plate = new THREE.Mesh(plateGeo, this._sharedPlateMat);
                 plate.position.set(0, -0.92, 0.05);
                 group.add(plate);
 
                 wall.add(group);
 
-                this.paintings.push({
-                    group, artMat, plateMat, artTex, pTex, label,
+                const painting = {
+                    group, artMat, label,
+                    artGeo, plateGeo,
                     artMesh: art, plateMesh: plate,
                     wallKey: key, frameIndex: i,
                     savedFrameMatrix, frameVisible: true,
-                    atlasMap: artTex,           // kept for swap-back when hires unloads
+                    atlasTex: sharedAtlasTex,   // for swap-back when hires unloads
+                    atlasU0: u0, atlasV0: v0,   // for hires UV-remap math
+                    atlasUVScale: uvScale,
                     hiresFile: tile.hiresFile,  // null if encoding failed
                     hiresActive: false
-                });
+                };
+                this.paintings.push(painting);
+                this._labelToPainting.set(label, painting);
             }
 
             this.frameMesh.instanceMatrix.needsUpdate = true;
@@ -285,8 +324,12 @@ export class GalleryManager {
         const camPos = camera.position;
         const PLATE_CULL_SQ = 225;     // 15m
         const ART_CULL_SQ = 400;       // 20m
-        const HIRES_USE_SQ = 25;       // 5m — swap to hires when within
-        const HIRES_DROP_SQ = 36;      // 6m — swap back to atlas when beyond (hysteresis)
+        // 5m → 3m. The previous radius let ~15+ paintings stay simultaneously
+        // active in dense corridors, defeating the cache cap. 3m corresponds
+        // to "walking right up to a painting" — the gameplay scenario hires
+        // is meant for. Keeps cache pressure at ≤4 actives in practice.
+        const HIRES_USE_SQ = 9;        // 3m — swap to hires when within
+        const HIRES_DROP_SQ = 16;      // 4m — swap back to atlas when beyond (hysteresis)
         const now = performance.now();
 
         let frameDirty = false;
@@ -308,6 +351,13 @@ export class GalleryManager {
                 this.frameMesh.setMatrixAt(i, wallVisible ? p.savedFrameMatrix : this._hideMatrix);
                 p.frameVisible = wallVisible;
                 frameDirty = true;
+                // Wall just got destroyed — release this painting's hires so
+                // the LRU eviction can reclaim it. The hires logic below is
+                // gated on wallVisible, so without this drop the painting
+                // would stay flagged "active" indefinitely (zombie texture).
+                if (!wallVisible && p.hiresActive) {
+                    this._revertToAtlas(p);
+                }
             }
 
             if (wallVisible && this._hiresLoader && p.hiresFile) {
@@ -353,6 +403,14 @@ export class GalleryManager {
                 tex.minFilter = this._THREE.LinearMipmapLinearFilter;
                 tex.magFilter = this._THREE.LinearFilter;
                 tex.anisotropy = this._maxAniso || 1;
+                // Painting geometry UVs reference an atlas tile sub-rectangle
+                // (u0..u1, v0..v1). The hires texture is a full single-tile
+                // image, so we remap with offset/repeat so vert UVs map to (0,1):
+                //   final = uv * repeat + offset
+                //   want uv=u0..u1 → final=0..1
+                const inv = 1 / p.atlasUVScale;
+                tex.repeat.set(inv, inv);
+                tex.offset.set(-p.atlasU0 * inv, -p.atlasV0 * inv);
                 this._hiresCache.set(p.label, { texture: tex, lastAccess: performance.now() });
             },
             undefined,
@@ -363,22 +421,45 @@ export class GalleryManager {
     }
 
     _revertToAtlas(p) {
-        p.artMat.map = p.atlasMap;
+        p.artMat.map = p.atlasTex;
         p.artMat.needsUpdate = true;
         p.hiresActive = false;
         this._hiresActiveLabels.delete(p.label);
     }
 
     _evictLRU() {
-        const candidates = [];
+        if (this._hiresCache.size <= this._hiresCacheMax) return;
+
+        // Two-tier eviction: drop non-active entries first (no visual cost),
+        // and if we're still over cap (the player is standing in a dense
+        // painting corridor where every nearby painting is "active"), revert
+        // the oldest-touched active painting to atlas and free its hires.
+        // Without this fallback, the cache could grow unboundedly past the
+        // declared cap when active count > cap.
+        const nonActive = [];
+        const active = [];
         for (const [label, entry] of this._hiresCache.entries()) {
-            if (!this._hiresActiveLabels.has(label)) {
-                candidates.push({ label, lastAccess: entry.lastAccess });
-            }
+            const list = this._hiresActiveLabels.has(label) ? active : nonActive;
+            list.push({ label, lastAccess: entry.lastAccess });
         }
-        candidates.sort((a, b) => a.lastAccess - b.lastAccess);
-        while (this._hiresCache.size > this._hiresCacheMax && candidates.length) {
-            const { label } = candidates.shift();
+        nonActive.sort((a, b) => a.lastAccess - b.lastAccess);
+        active.sort((a, b) => a.lastAccess - b.lastAccess);
+
+        while (this._hiresCache.size > this._hiresCacheMax) {
+            let label;
+            if (nonActive.length) {
+                label = nonActive.shift().label;
+            } else if (active.length) {
+                label = active.shift().label;
+                // Revert the painting to atlas before evicting its texture so
+                // the material doesn't end up pointing at a disposed map.
+                const painting = this._labelToPainting.get(label);
+                if (painting && painting.hiresActive) {
+                    this._revertToAtlas(painting);
+                }
+            } else {
+                break;
+            }
             const entry = this._hiresCache.get(label);
             if (entry) {
                 entry.texture.dispose();
@@ -414,12 +495,18 @@ export class GalleryManager {
         }
         if (this._hiresActiveLabels) this._hiresActiveLabels.clear();
         if (this._hiresLoading) this._hiresLoading.clear();
+        if (this._labelToPainting) this._labelToPainting.clear();
         for (const p of this.paintings) {
             if (p.group.parent) p.group.parent.remove(p.group);
-            p.artTex.dispose();
-            p.pTex.dispose();
+            // p.atlasTex is a shared module-level texture — don't dispose
+            // (it would break the gallery on the next level restart).
+            p.artGeo.dispose();
+            p.plateGeo.dispose();
             p.artMat.dispose();
-            p.plateMat.dispose();
+        }
+        if (this._sharedPlateMat) {
+            this._sharedPlateMat.dispose();
+            this._sharedPlateMat = null;
         }
         this.paintings = [];
     }

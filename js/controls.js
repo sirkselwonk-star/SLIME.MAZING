@@ -38,6 +38,14 @@ export class ShipControls {
         this.pointerLocked = false;
         this._ignoreNextMouse = false; // skip first delta after lock
 
+        // Playwright/automation mode — set with ?pw=1 in the URL. Pointer
+        // lock isn't reliably grantable through automated browser drivers,
+        // so this flag treats mousemove deltas, mousedown firing, and the
+        // update() gate as if the pointer were locked. Lets us drive a real
+        // input walkthrough for memory + perf testing.
+        this._pwMode = (typeof location !== 'undefined' &&
+            new URLSearchParams(location.search).get('pw') === '1');
+
         // Firing state — consumed by game loop each frame
         this.firing = { gun: false, rocket: false };
         this.gunHeld = false; // true while left mouse held
@@ -69,7 +77,7 @@ export class ShipControls {
         });
 
         document.addEventListener('mousemove', e => {
-            if (this.pointerLocked) {
+            if (this.pointerLocked || this._pwMode) {
                 // Skip the first mouse event after lock — browsers often fire a huge spike
                 if (this._ignoreNextMouse) {
                     this._ignoreNextMouse = false;
@@ -95,7 +103,7 @@ export class ShipControls {
 
         // Mouse buttons — firing
         document.addEventListener('mousedown', e => {
-            if (!this.pointerLocked) return;
+            if (!this.pointerLocked && !this._pwMode) return;
             if (e.button === 0) { this.firing.gun = true; this.gunHeld = true; }
             if (e.button === 2) this.firing.rocket = true;
         });
@@ -111,7 +119,7 @@ export class ShipControls {
     }
 
     update(dt, colliders) {
-        if (!this.pointerLocked && !this.touchActive) return;
+        if (!this.pointerLocked && !this.touchActive && !this._pwMode) return;
 
         const cam = this.camera;
 

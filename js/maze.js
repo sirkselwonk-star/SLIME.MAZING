@@ -1,5 +1,7 @@
 // maze.js — SVG path → polygon → grid → maze generation
 
+import { random } from './rng.js?v=1';
+
 const SLIME_SVG_PATH = "M448.3-.2h3.1c24.8-.3 49 .4 73.6 4.2l3.5.6a398 398 0 0 1 205.7 98.9l6.7 5.8c45 39.2 65.5 98.7 70 156.7q.6 14.7.4 29.4v3.6q.2 26.9-2.2 53.5l-.3 2.5q-1.5 15.6-3.5 31l-.4 3.3q-4.1 33.8-9 67.2c-5.2 36.1-10.3 72.2-13.9 108.5l-.2 2.4q-1.6 15.7-2.8 31.6l-.2 2a773 773 0 0 0 .4 128.1q4.5 51 16.8 100.9l.8 3.3A630 630 0 0 0 873 1011l1.7 2.7a690 690 0 0 0 32.1 47.7q4.3 6 9.8 10.8a356 356 0 0 1 23.2 22.4l13.7 13.7 2.5 2.4a223 223 0 0 1 18.8 21.5c10.2 12 21 26 22.5 42.1-.5 5.7-2.6 9.9-6.5 14-17.2 10.4-42 6.4-60.6 2-37.7-9.4-76.4-29.7-99-62.4-22.7-38.4-31.5-89.3-43.4-132l-.8-2.9-12.4-45a284 284 0 0 0-7.7-24.7l-.7-2c-4.5-11.5-10.3-21.2-21.7-26.7a50 50 0 0 0-37.5 3.8 43 43 0 0 0-23 24.4c-15.7 55 11.7 127.3 23.6 181.4l21 95.1c7 31.6 14 63 22.5 94.2q3 11.5 5.6 23.2l.6 2.3c20.3 88.8 20.3 88.8 5.7 113a21 21 0 0 1-11.7 9.6c-16.4 3.1-32.2-5.2-45.4-14A205 205 0 0 1 680 1406l-2-2a230 230 0 0 1-24-26l-1.6-2a259 259 0 0 1-22.8-34.5 221 221 0 0 1-29.8-108.2v-2.2q0-13.5 1.2-26.8 1.4-13.2 1.3-26.5v-3.6c0-16.8-5.3-30.8-17-43l-2.3-2.2-1.8-1.9c-13.1-12.9-34-17.7-51.3-22.3A90 90 0 0 1 491 1086l-2-1.8c-14-12.7-19.7-30.8-21-49.2q-.3-10.7 1-21.2l.4-3q1.4-10.4 3.6-20.5l.5-2.6 2.8-12.8c3.6-16 3.6-16 1.7-32-2.8-4-5.3-5.7-10-6.9-21.6-2.5-43.2 9.3-59.6 22.3-31.9 26.9-50.2 65-54.3 106.2l-.7 7.4a452 452 0 0 0-2.6 46v2.4a710 710 0 0 0 15.8 136.7q7.6 39.6 16.5 79l.7 3 6.7 30c16.9 74.8 16.9 74.8 8 89.8A31 31 0 0 1 379 1471a89 89 0 0 1-36-4l-2-.6a82 82 0 0 1-27-14.4l-2.8-2.2A162 162 0 0 1 248 1338q-1.2-10.8-1.2-21.7v-3l-.1-15.7c-.2-26.2 4.8-51.4 9.6-77.1l5.4-29 .5-3a3670 3670 0 0 0 11.8-67.2c19.4-102.8 19.4-102.8-9-200.3-4.7-6-9.2-11.6-16.7-13.8-11.3-.7-20.7 5.4-28.9 12.6L212 927l-1.4 1.4c-30.4 31-40.2 67.1-45.5 109-5.1 39.9-15.3 73.8-43.7 103.2l-3.6 3.8c-21 22.3-57.5 44.3-88.8 46h-5.3l-2.5.1a25 25 0 0 1-18.1-7.1A21 21 0 0 1 .6 1167c5.7-20.7 20.2-39 31.8-56.7a852 852 0 0 0 50-86c39.2-78.2 54.3-166.4 28.7-522a1641 1641 0 0 1-8.3-67.2 722 722 0 0 1-3.4-48.6v-3.9Q98.6 370 99 357v-2.8c.9-38.1 3.4-78.4 14-115.2l.6-2a215 215 0 0 1 12.4-31l1.1-2.4a281 281 0 0 1 39.2-61.5q5.9-7.5 12.3-14.5l5.7-6.4q5.6-6.4 11.6-12.3l2-2A253 253 0 0 1 212 94l3-2.6C278.2 36.8 364 .4 448.3-.2";
 
 const SVG_WIDTH = 997;
@@ -130,7 +132,7 @@ function generateMaze(grid, rows, cols) {
         }
 
         if (neighbors.length > 0) {
-            const chosen = neighbors[Math.floor(Math.random() * neighbors.length)];
+            const chosen = neighbors[Math.floor(random() * neighbors.length)];
             // Remove walls between current and chosen
             current.walls[chosen.dir.wall] = false;
             chosen.cell.walls[chosen.dir.opposite] = false;
@@ -320,6 +322,37 @@ function buildMazeGeometry(grid, rows, cols, startPos, exitPos, THREE) {
     const offsetX = -(cols * corridorSize) / 2;
     const offsetZ = -(rows * corridorSize) / 2;
 
+    // Count inside cells once so we can size the floor/ceiling InstancedMeshes.
+    // Floors and ceilings are otherwise identical PlaneGeometry at unique
+    // world positions — perfect for instancing (1,236+ draw calls → 2).
+    let insideCount = 0;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c].inside) insideCount++;
+        }
+    }
+
+    // Bake the floor/ceiling rotation into the geometry so each instance only
+    // needs a translation matrix.
+    const floorPlaneGeo = new THREE.PlaneGeometry(corridorSize, corridorSize);
+    floorPlaneGeo.rotateX(-Math.PI / 2);
+    const ceilingPlaneGeo = new THREE.PlaneGeometry(corridorSize, corridorSize);
+    ceilingPlaneGeo.rotateX(Math.PI / 2);
+
+    const floorInstanced = new THREE.InstancedMesh(floorPlaneGeo, floorMaterial, insideCount);
+    const ceilingInstanced = new THREE.InstancedMesh(ceilingPlaneGeo, ceilingMaterial, insideCount);
+    mazeGroup.add(floorInstanced);
+    mazeGroup.add(ceilingInstanced);
+
+    const tmpMat4 = new THREE.Matrix4();
+    let cellInstance = 0;
+
+    // Walls are queued here, then merged per 6×6 EyesBleed zone in a second
+    // pass after the cell loop. Each zone becomes one Mesh; per-wall
+    // placeholders carry the position + visibility-with-cascade contract that
+    // gallery.js and weapons.js depend on.
+    const pendingWalls = [];
+
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
             const cell = grid[r][c];
@@ -327,47 +360,157 @@ function buildMazeGeometry(grid, rows, cols, startPos, exitPos, THREE) {
 
             const x = c * corridorSize + offsetX;
             const z = r * corridorSize + offsetZ;
+            const cellCx = x + corridorSize / 2;
+            const cellCz = z + corridorSize / 2;
 
-            // Floor
-            const floor = new THREE.Mesh(
-                new THREE.PlaneGeometry(corridorSize, corridorSize),
-                floorMaterial
-            );
-            floor.rotation.x = -Math.PI / 2;
-            floor.position.set(x + corridorSize / 2, 0, z + corridorSize / 2);
-            mazeGroup.add(floor);
-            floorMeshes[`${r},${c}`] = floor;
+            // Floor instance — y=0
+            tmpMat4.makeTranslation(cellCx, 0, cellCz);
+            floorInstanced.setMatrixAt(cellInstance, tmpMat4);
+            // Stub stores enough info for two consumers:
+            //   - eyesbleed particle/laser spawn reads .position
+            //   - eyesbleed sparse-effect mode hides the base instance and
+            //     drops a per-cell effect Mesh at the same spot, then
+            //     restores the instance on deactivate.
+            floorMeshes[`${r},${c}`] = {
+                position: new THREE.Vector3(cellCx, 0, cellCz),
+                visible: true,
+                instanceIdx: cellInstance,
+                instancedMesh: floorInstanced
+            };
 
-            // Ceiling
-            const ceiling = new THREE.Mesh(
-                new THREE.PlaneGeometry(corridorSize, corridorSize),
-                ceilingMaterial
-            );
-            ceiling.rotation.x = Math.PI / 2;
-            ceiling.position.set(x + corridorSize / 2, wallHeight, z + corridorSize / 2);
-            mazeGroup.add(ceiling);
-            ceilingMeshes[`${r},${c}`] = ceiling;
+            // Ceiling instance — y=wallHeight
+            tmpMat4.makeTranslation(cellCx, wallHeight, cellCz);
+            ceilingInstanced.setMatrixAt(cellInstance, tmpMat4);
+            ceilingMeshes[`${r},${c}`] = {
+                position: new THREE.Vector3(cellCx, wallHeight, cellCz),
+                visible: true,
+                instanceIdx: cellInstance,
+                instancedMesh: ceilingInstanced
+            };
 
-            // Walls — geometry includes miter offsets at L-corners so adjacent
-            // walls share a 45° diagonal seam (no pillar, no co-planar overlap
-            // that z-fights with per-wall shaders in Eyes Bleed mode).
-            // Mesh position is the wall's natural center (matching the old
-            // BoxGeometry placement) so gallery.js + weapons.js can read
-            // wall.position to anchor paintings, lights, and damage radii.
+            cellInstance++;
+
+            // Walls — collected per-zone for merging below. Each wall keeps
+            // its mitered footprint (L-corner 45° seams). Per-zone merge
+            // collapses ~2,500 wall draw calls into ~25 zone draws and lines
+            // up perfectly with EyesBleed's existing 6×6 zone effect grouping.
             for (const dir of ['N', 'S', 'W', 'E']) {
                 if (!cell.walls[dir]) continue;
                 const fp = getWallFootprint(grid, r, c, dir, corridorSize, wallThickness, offsetX, offsetZ);
-                let cx, cz;
-                if (dir === 'N')      { cx = x + corridorSize / 2; cz = z; }
-                else if (dir === 'S') { cx = x + corridorSize / 2; cz = z + corridorSize; }
-                else if (dir === 'W') { cx = x;                    cz = z + corridorSize / 2; }
-                else /* 'E' */        { cx = x + corridorSize;     cz = z + corridorSize / 2; }
-                const geo = buildMiteredWallGeo(THREE, fp, wallHeight, cx, cz);
-                const wall = new THREE.Mesh(geo, wallMaterial);
-                wall.position.set(cx, wallHeight / 2, cz);
-                mazeGroup.add(wall);
-                wallMeshes[`${r},${c},${dir}`] = wall;
+                let wcx, wcz;
+                if (dir === 'N')      { wcx = x + corridorSize / 2; wcz = z; }
+                else if (dir === 'S') { wcx = x + corridorSize / 2; wcz = z + corridorSize; }
+                else if (dir === 'W') { wcx = x;                    wcz = z + corridorSize / 2; }
+                else /* 'E' */        { wcx = x + corridorSize;     wcz = z + corridorSize / 2; }
+                const geo = buildMiteredWallGeo(THREE, fp, wallHeight, wcx, wcz);
+                pendingWalls.push({ r, c, dir, geo, cx: wcx, cz: wcz });
             }
+        }
+    }
+
+    // ---- Per-zone wall merge ----
+    // Group walls by their cell's 6×6 EyesBleed zone, then merge each zone's
+    // wall geometries into one BufferGeometry. The result is one Mesh per zone
+    // (~25 zones for a typical SLIME map) instead of ~2,500 wall meshes —
+    // matching draw call drop. Per-wall Object3D placeholders preserve the
+    // existing contract: gallery.js parents paintings to wall.add(group) and
+    // reads wall.position + wall.visible; weapons.js sets wall.visible=false
+    // on rocket impact. Hiding a wall zeros its vertex range in the merged
+    // geometry so the wall actually disappears.
+    const wallZoneMeshes = {};
+    const wallsByZone = new Map();
+    for (const w of pendingWalls) {
+        const zoneKey = `${Math.floor(w.r / 6)},${Math.floor(w.c / 6)}`;
+        if (!wallsByZone.has(zoneKey)) wallsByZone.set(zoneKey, []);
+        wallsByZone.get(zoneKey).push(w);
+    }
+
+    for (const [zoneKey, walls] of wallsByZone) {
+        // Compute total vertex/index counts for the zone
+        let totalVerts = 0, totalIdx = 0;
+        for (const w of walls) {
+            totalVerts += w.geo.attributes.position.count;
+            totalIdx += w.geo.index.count;
+        }
+        const positions = new Float32Array(totalVerts * 3);
+        const uvs = new Float32Array(totalVerts * 2);
+        // 16-bit index is fine when totalVerts < 65536; use 32-bit unconditionally
+        // since some zones may exceed that. The few KB cost is irrelevant.
+        const indices = new Uint32Array(totalIdx);
+
+        let posOff = 0, uvOff = 0, idxOff = 0;
+        for (const w of walls) {
+            const wp = w.geo.attributes.position.array;
+            const wu = w.geo.attributes.uv.array;
+            const wi = w.geo.index.array;
+            const baseVert = posOff / 3;
+            // Per-wall geometry was built in mesh-local space (centered at
+            // the wall's center) — translate to world space here so we can
+            // discard the per-wall transform and just put one Mesh at origin.
+            for (let v = 0; v < wp.length; v += 3) {
+                positions[posOff + v]     = wp[v]     + w.cx;
+                positions[posOff + v + 1] = wp[v + 1] + wallHeight / 2;
+                positions[posOff + v + 2] = wp[v + 2] + w.cz;
+            }
+            posOff += wp.length;
+            uvs.set(wu, uvOff);
+            uvOff += wu.length;
+            for (let i = 0; i < wi.length; i++) {
+                indices[idxOff + i] = wi[i] + baseVert;
+            }
+            idxOff += wi.length;
+            w.vertStart = baseVert;
+            w.vertEnd = posOff / 3; // exclusive
+            // Per-wall geometry has been copied; release it.
+            w.geo.dispose();
+        }
+
+        const merged = new THREE.BufferGeometry();
+        merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        merged.setIndex(new THREE.BufferAttribute(indices, 1));
+        merged.computeVertexNormals();
+
+        const zoneMesh = new THREE.Mesh(merged, wallMaterial);
+        // Zone bounds can span dozens of meters; default per-mesh frustum
+        // culling can mis-cull on tight corridor angles. Walls being culled
+        // into invisibility mid-corridor is worse than the cost of always
+        // submitting the draw.
+        zoneMesh.frustumCulled = false;
+        mazeGroup.add(zoneMesh);
+        wallZoneMeshes[zoneKey] = zoneMesh;
+
+        // Per-wall Object3D placeholders. Paintings parent here, so the
+        // existing visibility cascade still hides paintings when the wall
+        // is destroyed. Overriding .visible's setter zeros that wall's
+        // vertex range in the merged geometry so the wall actually vanishes.
+        for (const w of walls) {
+            const placeholder = new THREE.Object3D();
+            placeholder.position.set(w.cx, wallHeight / 2, w.cz);
+            placeholder.userData.zoneMesh = zoneMesh;
+            placeholder.userData.vertStart = w.vertStart;
+            placeholder.userData.vertEnd = w.vertEnd;
+            const vertStart = w.vertStart, vertEnd = w.vertEnd;
+            let _vis = true;
+            Object.defineProperty(placeholder, 'visible', {
+                get() { return _vis; },
+                set(v) {
+                    if (v === _vis) return;
+                    _vis = v;
+                    if (v) return; // unhide is not used in this game
+                    const posAttr = zoneMesh.geometry.attributes.position;
+                    const arr = posAttr.array;
+                    for (let vi = vertStart; vi < vertEnd; vi++) {
+                        arr[vi * 3] = 0;
+                        arr[vi * 3 + 1] = 0;
+                        arr[vi * 3 + 2] = 0;
+                    }
+                    posAttr.needsUpdate = true;
+                },
+                configurable: true
+            });
+            mazeGroup.add(placeholder);
+            wallMeshes[`${w.r},${w.c},${w.dir}`] = placeholder;
         }
     }
 
@@ -423,6 +566,7 @@ function buildMazeGeometry(grid, rows, cols, startPos, exitPos, THREE) {
     return {
         group: mazeGroup,
         wallMeshes,
+        wallZoneMeshes,
         floorMeshes,
         ceilingMeshes,
         corridorSize,

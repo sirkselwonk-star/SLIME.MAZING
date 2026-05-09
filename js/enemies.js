@@ -1,5 +1,7 @@
 // enemies.js — Enemy spawning, patrol AI, contact damage
 
+import { random } from './rng.js?v=1';
+
 export class EnemyManager {
     constructor(scene, THREE) {
         this.scene = scene;
@@ -8,6 +10,17 @@ export class EnemyManager {
         this.detectionRange = 8;
         this.contactRadius = 1.0;
         this.contactCooldown = 0.5; // seconds between damage ticks
+
+        // All enemies share one geometry + material. Cuts per-spawn allocation
+        // and means cleanup() only has to dispose two GPU resources, not 2×N.
+        this._sharedGeo = new THREE.IcosahedronGeometry(0.35, 1);
+        this._sharedMat = new THREE.MeshStandardMaterial({
+            color: 0xcc3366,
+            emissive: 0xff2255,
+            emissiveIntensity: 1.5,
+            roughness: 0.4,
+            metalness: 0.7
+        });
     }
 
     spawnEnemies(grid, rows, cols, corridorSize, offsetX, offsetZ, startPos, exitPos) {
@@ -25,11 +38,11 @@ export class EnemyManager {
 
         // Shuffle
         for (let i = candidates.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(random() * (i + 1));
             [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
         }
 
-        const count = Math.min(candidates.length, 8 + Math.floor(Math.random() * 5));
+        const count = Math.min(candidates.length, 8 + Math.floor(random() * 5));
 
         for (let i = 0; i < count; i++) {
             const { r, c } = candidates[i];
@@ -40,20 +53,10 @@ export class EnemyManager {
     }
 
     _spawn(x, z, gridRow, gridCol, grid) {
-        const THREE = this.THREE;
-
-        const geo = new THREE.IcosahedronGeometry(0.35, 1);
         // No per-enemy PointLight: removing/adding lights at death time
         // forces three.js to recompile every lit material in the scene
         // (shader's light-array size changes). Emissive carries the look.
-        const mat = new THREE.MeshStandardMaterial({
-            color: 0xcc3366,
-            emissive: 0xff2255,
-            emissiveIntensity: 1.5,
-            roughness: 0.4,
-            metalness: 0.7
-        });
-        const mesh = new THREE.Mesh(geo, mat);
+        const mesh = new this.THREE.Mesh(this._sharedGeo, this._sharedMat);
         mesh.position.set(x, 1.2, z);
         this.scene.add(mesh);
 
@@ -65,7 +68,7 @@ export class EnemyManager {
         if (!cell.walls.E) dirs.push({ dx: 1, dz: 0 });
         if (!cell.walls.W) dirs.push({ dx: -1, dz: 0 });
         const dir = dirs.length > 0
-            ? dirs[Math.floor(Math.random() * dirs.length)]
+            ? dirs[Math.floor(random() * dirs.length)]
             : { dx: 0, dz: 0 };
 
         this.enemies.push({
@@ -79,7 +82,7 @@ export class EnemyManager {
             gridRow,
             gridCol,
             damageCooldown: 0,
-            bobPhase: Math.random() * Math.PI * 2
+            bobPhase: random() * Math.PI * 2
         });
     }
 
@@ -106,7 +109,12 @@ export class EnemyManager {
             if (enemy.hp <= 0) {
                 enemy.dying = true;
                 enemy.deathTimer = 0;
+                // Living enemies share one material to keep allocations cheap.
+                // The fade animation mutates opacity per-frame, so this enemy
+                // needs its own copy now or the fade would affect all peers.
+                enemy.mesh.material = this._sharedMat.clone();
                 enemy.mesh.material.transparent = true;
+                enemy._materialOwned = true;
                 continue;
             }
 
@@ -171,7 +179,7 @@ export class EnemyManager {
                     const filtered = dirs.filter(d => !(d.dx === opp.dx && d.dz === opp.dz));
                     const pool = filtered.length > 0 ? filtered : dirs;
                     enemy.moveDir = pool.length > 0
-                        ? pool[Math.floor(Math.random() * pool.length)]
+                        ? pool[Math.floor(random() * pool.length)]
                         : { dx: 0, dz: 0 };
                 }
             } else {
@@ -194,7 +202,13 @@ export class EnemyManager {
     }
 
     cleanup() {
-        for (const enemy of this.enemies) this.scene.remove(enemy.mesh);
+        for (const enemy of this.enemies) {
+            this.scene.remove(enemy.mesh);
+            // Dying enemies have their own cloned material — release it.
+            if (enemy._materialOwned) enemy.mesh.material.dispose();
+        }
         this.enemies = [];
+        this._sharedGeo.dispose();
+        this._sharedMat.dispose();
     }
 }

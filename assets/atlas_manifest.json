@@ -1,10 +1,10 @@
 {
-  "cellSize": 512,
-  "tileSize": 512,
-  "innerTileSize": 480,
-  "bleed": 16,
+  "cellSize": 256,
+  "tileSize": 256,
+  "innerTileSize": 240,
+  "bleed": 8,
   "gridSize": 8,
-  "atlasSize": 4096,
+  "atlasSize": 2048,
   "atlasCount": 16,
   "plate": {
     "cellWidth": 256,

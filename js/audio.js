@@ -525,6 +525,7 @@ export class SoundtrackManager {
         }
         for (const node of this._continuousNodes) {
             try { node.stop(); } catch (e) { /* already stopped */ }
+            try { node.disconnect(); } catch (e) { /* already disconnected */ }
         }
         this._continuousNodes = [];
         this._bassOsc = null;
@@ -626,6 +627,13 @@ export class SoundtrackManager {
     }
 
     _makeDistortionCurve(amount) {
+        // Memoized — only 4 distinct amounts ever requested (20/25/30/35),
+        // and each curve is a 176KB Float32Array. Without the cache this
+        // function allocated ~MB/sec during scream/bass solos.
+        if (!this._distortionCurveCache) this._distortionCurveCache = new Map();
+        const cached = this._distortionCurveCache.get(amount);
+        if (cached) return cached;
+
         const n = 44100;
         const curve = new Float32Array(n);
         const deg = Math.PI / 180;
@@ -633,6 +641,7 @@ export class SoundtrackManager {
             const x = (i * 2) / n - 1;
             curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
         }
+        this._distortionCurveCache.set(amount, curve);
         return curve;
     }
 
@@ -749,11 +758,17 @@ export class SoundtrackManager {
      */
     _disposeWhenDone(sources, nodes) {
         let pending = sources.length;
+        const localSources = sources;  // shadowed so we can null out below
+        const localNodes = nodes;
         const cleanup = () => {
             if (--pending === 0) {
-                for (const n of nodes) {
+                for (const n of localNodes) {
                     try { n.disconnect(); } catch (e) { /* already disconnected */ }
                 }
+                // Clear handler refs so the closure (which captures the node
+                // arrays) becomes unreachable — otherwise the closure holds
+                // ~5-15 audio nodes' worth of references per note, forever.
+                for (const s of localSources) s.onended = null;
             }
         };
         for (const s of sources) s.onended = cleanup;

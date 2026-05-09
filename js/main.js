@@ -12,10 +12,11 @@ import { HUD } from './hud.js?v=27';
 import { GameState } from './game.js?v=18';
 import { WeaponSystem } from './weapons.js?v=14';
 import { EnemyManager } from './enemies.js?v=14';
-import { SoundtrackManager } from './audio.js?v=22';
+import { SoundtrackManager } from './audio.js?v=23';
 import { GalleryManager } from './gallery.js?v=25';
 import { EyesBleedManager } from './eyesbleed.js?v=14';
 import { TouchControlsManager } from './touch-controls.js?v=14';
+import { setSeed, getSeed } from './rng.js?v=1';
 
 window.THREE = THREE;
 
@@ -33,11 +34,32 @@ let eyesBleed;
 let touchControls;
 const isTouchDevice = matchMedia('(pointer: coarse) and (hover: none)').matches;
 
+// Module-level scratch vectors so animate() and updateParticles() don't
+// allocate fresh Vector3s every frame — at 60fps that's 60+ allocations/sec
+// per Vector3 just for camera basis math, all collected by GC. Hoisting eats
+// a one-time cost and the per-frame loop becomes alloc-free.
+const _tmpForward = new THREE.Vector3();
+const _tmpBack = new THREE.Vector3();
+const _tmpBasePos = new THREE.Vector3();
+
 // Locked aspect ratio
 const TARGET_ASPECT = 16 / 9;
 const TARGET_FOV = 65;
 
+// Seed the maze generator from URL ?seed=N if present, otherwise pick a fresh
+// random seed and log it so the player can replay this exact map. Set BEFORE
+// buildLevel so generateMaze + gallery + enemies + ore see the same stream.
+function _initSeed() {
+    const param = new URLSearchParams(location.search).get('seed');
+    const seed = param != null ? (parseInt(param, 10) >>> 0) : (Math.floor(Math.random() * 0xFFFFFFFF) >>> 0);
+    setSeed(seed);
+    console.log(`SLIME.MAZING seed: ${getSeed()}  (replay with ?seed=${getSeed()})`);
+    const el = document.getElementById('seed-display');
+    if (el) el.textContent = `SEED: ${getSeed()}`;
+}
+
 function init() {
+    _initSeed();
     clock = new THREE.Clock();
 
     // Renderer — locked 16:9 aspect ratio
@@ -86,7 +108,7 @@ function init() {
             if (eyesBleed.isActive) {
                 eyesBleed.deactivate();
             } else {
-                eyesBleed.activate(mazeData.wallMeshes, mazeData.floorMeshes, mazeData.ceilingMeshes, { renderer, scene, camera });
+                eyesBleed.activate(mazeData.wallZoneMeshes, mazeData.floorMeshes, mazeData.ceilingMeshes, { renderer, scene, camera, corridorSize: mazeData.corridorSize });
             }
         }
     };
@@ -129,11 +151,23 @@ function init() {
             if (eyesBleed.isActive) {
                 eyesBleed.deactivate();
             } else {
-                eyesBleed.activate(mazeData.wallMeshes, mazeData.floorMeshes, mazeData.ceilingMeshes, { renderer, scene, camera });
+                eyesBleed.activate(mazeData.wallZoneMeshes, mazeData.floorMeshes, mazeData.ceilingMeshes, { renderer, scene, camera, corridorSize: mazeData.corridorSize });
             }
         }
     });
-    window._debug = { scene, camera, renderer, get mazeData() { return mazeData; }, get gridData() { return gridData; }, get colliders() { return colliders; } };
+    window._debug = {
+        scene, camera, renderer,
+        get mazeData() { return mazeData; },
+        get gridData() { return gridData; },
+        get colliders() { return colliders; },
+        get controls() { return controls; },
+        get weapons() { return weapons; },
+        get eyesBleed() { return eyesBleed; },
+        get gallery() { return gallery; },
+        get enemyManager() { return enemyManager; },
+        get soundtrack() { return soundtrack; },
+        get gameState() { return gameState; }
+    };
 
     // Build maze
     buildLevel();
@@ -408,21 +442,59 @@ function startGame() {
     soundtrack.start();
 }
 
+/**
+ * Walk a Three.js subtree and free all GPU resources it owns. `scene.remove`
+ * by itself only detaches — the geometry/material/textures stay alive on the
+ * GPU until JS drops the references AND .dispose() runs. Without this, every
+ * level restart leaks the entire previous maze.
+ */
+function disposeSubtree(obj) {
+    if (!obj) return;
+    obj.traverse(node => {
+        if (node.geometry) node.geometry.dispose();
+        if (node.material) {
+            const mats = Array.isArray(node.material) ? node.material : [node.material];
+            for (const mat of mats) {
+                for (const key in mat) {
+                    const v = mat[key];
+                    if (v && v.isTexture) v.dispose();
+                }
+                mat.dispose();
+            }
+        }
+    });
+}
+
 function restartGame() {
-    // Remove old maze and ore groups from scene
-    if (mazeData && mazeData.group) scene.remove(mazeData.group);
-    if (oreGroup) scene.remove(oreGroup);
+    // Free GPU resources owned by the previous level before detaching from the
+    // scene graph. gallery/weapons/enemies/eyesBleed have their own cleanup
+    // hooks; the maze + ore are owned directly by main.js.
+    if (mazeData && mazeData.group) {
+        disposeSubtree(mazeData.group);
+        scene.remove(mazeData.group);
+    }
+    if (oreGroup) {
+        disposeSubtree(oreGroup);
+        scene.remove(oreGroup);
+    }
     if (weapons) weapons.cleanup();
     if (enemyManager) enemyManager.cleanup();
     if (gallery) gallery.cleanup();
     if (eyesBleed) eyesBleed.cleanup();
-    for (const slab of cardSlabsThisLevel) scene.remove(slab);
+    for (const slab of cardSlabsThisLevel) {
+        disposeSubtree(slab);
+        scene.remove(slab);
+    }
     cardSlabsThisLevel = [];
 
     // Reset game state
     gameState = new GameState();
     window._gameState = gameState;
     gameState.onOreCollected = () => soundtrack.playCrystalSound();
+
+    // Reset the RNG so a level restart on a fixed seed reproduces the same
+    // maze instead of advancing the stream.
+    setSeed(getSeed());
 
     // Rebuild maze
     buildLevel();
@@ -487,8 +559,10 @@ function updateParticles(dt) {
     particles.mesh.material.opacity = Math.min(0.6, speed * 0.1);
 
     // Position particles behind camera
-    const back = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
-    const basePos = camera.position.clone().add(back.multiplyScalar(0.5));
+    _tmpBack.set(0, 0, 1).applyQuaternion(camera.quaternion);
+    _tmpBasePos.copy(camera.position).addScaledVector(_tmpBack, 0.5);
+    const back = _tmpBack;
+    const basePos = _tmpBasePos;
 
     for (let i = 0; i < particles.count; i++) {
         positions[i * 3 + 2] += particles.velocities[i].z * dt;
@@ -640,8 +714,8 @@ function animate() {
     }
 
     // Get heading for compass — bearing convention (N=0, E=90, S=180, W=270).
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    const heading = Math.atan2(forward.x, -forward.z);
+    _tmpForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    const heading = Math.atan2(_tmpForward.x, -_tmpForward.z);
 
     // Draw HUD
     const gridPos2 = getPlayerGridPos();
