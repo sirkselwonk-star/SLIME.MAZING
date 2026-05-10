@@ -15,7 +15,7 @@ import { EnemyManager } from './enemies.js?v=14';
 import { SoundtrackManager } from './audio.js?v=23';
 import { GalleryManager } from './gallery.js?v=25';
 import { EyesBleedManager } from './eyesbleed.js?v=14';
-import { TouchControlsManager } from './touch-controls.js?v=16';
+import { TouchControlsManager } from './touch-controls.js?v=17';
 import { setSeed, getSeed } from './rng.js?v=1';
 
 window.THREE = THREE;

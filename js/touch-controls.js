@@ -445,10 +445,12 @@ export class TouchControlsManager {
         const stickRadius = 50;
         const sideInset = 90;
 
-        // Stick centered above its button stack. Cluster sits ~140 px from
-        // the bottom so the GUN/RKT vertical stack still has headroom.
-        const stickY = h - 140 - stickRadius;
-        const buttonY = stickY + stickRadius + gap;
+        // Lift the whole cluster well above the bottom edge. Anchor by the
+        // RKT bottom (last button) sitting `bottomMargin` from the bottom,
+        // then derive the stick position above the two-button stack.
+        const bottomMargin = 100;
+        const buttonY = h - bottomMargin - (2 * bSize + gap);
+        const stickY = buttonY - gap - stickRadius;
 
         // Pull sticks inward so the controls aren't crowding the edge of
         // the screen, even when there's no pillarbox.
