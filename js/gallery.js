@@ -322,8 +322,11 @@ export class GalleryManager {
         if (!this.paintings.length || !this.frameMesh) return;
 
         const camPos = camera.position;
-        const PLATE_CULL_SQ = 225;     // 15m
-        const ART_CULL_SQ = 400;       // 20m
+        // Corridor cells are 2.5 m, so this extends the previous 20 m art
+        // cull by ~2 panels — keeps long-corridor paintings from popping in
+        // as a black rectangle inside the still-visible frame.
+        const PLATE_CULL_SQ = 400;     // 20m
+        const ART_CULL_SQ = 625;       // 25m
         // 5m → 3m. The previous radius let ~15+ paintings stay simultaneously
         // active in dense corridors, defeating the cache cap. 3m corresponds
         // to "walking right up to a painting" — the gameplay scenario hires
