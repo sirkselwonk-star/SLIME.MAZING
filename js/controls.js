@@ -41,7 +41,7 @@ export class ShipControls {
         this.smoothDX = 0;         // smoothed mouse output
         this.smoothDY = 0;
         this.mouseSmoothing = 0.65; // lerp factor (0=sluggish, 1=raw)
-        this.maxMouseDelta = 30;   // clamp per-frame pixel delta
+        this.maxMouseDelta = 50;   // clamp per-frame pixel delta
         this.pointerLocked = false;
         this._ignoreNextMouse = false; // skip first delta after lock
 
