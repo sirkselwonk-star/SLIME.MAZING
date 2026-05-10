@@ -385,44 +385,51 @@ export class TouchControlsManager {
     }
 
     _layoutLandscape(w, h) {
-        const { vpW, offsetX } = this._getViewport(w, h);
+        const { offsetX } = this._getViewport(w, h);
 
-        // Sticks — inside the pillarbox side bars, near the bottom
-        const stickY = h - 80;
-        const leftBarCenter = Math.floor(offsetX / 2);         // center of left black bar
-        const rightBarCenter = w - Math.floor(offsetX / 2);    // center of right black bar
-        // If bars are very narrow, keep sticks at minimum inset
+        const gap = 10;
+        const bSize = 56;
+        const optSize = 44;
+        const bottomMargin = 24;
+        const stickRadius = 50;
+
+        // Buttons sit in a single horizontal row at the bottom; sticks go
+        // directly above their respective button pair.
+        const buttonY = h - bottomMargin - bSize;
+        const stickY = buttonY - gap - stickRadius;
+
+        const leftBarCenter = Math.floor(offsetX / 2);
+        const rightBarCenter = w - Math.floor(offsetX / 2);
         const leftStickX = Math.max(60, leftBarCenter);
         const rightStickX = Math.min(w - 60, rightBarCenter);
 
         this._posStick(this.leftBase, leftStickX, stickY);
         this._posStick(this.rightBase, rightStickX, stickY);
 
-        // Touch zones — full-height strips covering each side bar + some game edge
+        // Touch zones — only cover the upper portion so they don't eat the
+        // button row's hit area.
+        const zoneH = stickY + stickRadius;
         this.leftZone.style.cssText = `
             position: absolute; left: 0; top: 0;
-            width: ${offsetX + 60}px; height: 100%;
+            width: ${offsetX + 60}px; height: ${zoneH}px;
             pointer-events: auto; touch-action: none;
         `;
         this.rightZone.style.cssText = `
             position: absolute; right: 0; top: 0;
-            width: ${offsetX + 60}px; height: 100%;
+            width: ${offsetX + 60}px; height: ${zoneH}px;
             pointer-events: auto; touch-action: none;
         `;
 
-        const gap = 10;
-        const bSize = 56;
-        const optSize = 44;
+        // Fire buttons — under left stick, side-by-side
+        this._posBtn(this.buttons.gun, leftStickX - bSize - gap / 2, buttonY);
+        this._posBtn(this.buttons.rocket, leftStickX + gap / 2, buttonY);
 
-        // Fire buttons — left pillarbox bar, stacked above the left stick
-        this._posBtn(this.buttons.gun, leftStickX - bSize / 2, stickY - 50 - bSize - gap);
-        this._posBtn(this.buttons.rocket, leftStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
-
-        // Option buttons — right pillarbox bar, stacked above the right stick
-        this._posBtn(this.buttons.eyesBleed, rightStickX - optSize / 2, stickY - 50 - optSize - gap);
-        this._posBtn(this.buttons.mute, rightStickX - optSize / 2, stickY - 50 - (optSize + gap) * 2);
-        // Pause — above left fire buttons
-        this._posBtn(this.buttons.pause, leftStickX - optSize / 2, stickY - 50 - (bSize + gap) * 2 - optSize - gap);
+        // Option buttons — under right stick, side-by-side
+        const optY = buttonY + (bSize - optSize) / 2; // vertically centered with fire buttons
+        this._posBtn(this.buttons.eyesBleed, rightStickX - optSize - gap / 2, optY);
+        this._posBtn(this.buttons.mute, rightStickX + gap / 2, optY);
+        // Pause — top-right corner, out of the thumb path
+        this._posBtn(this.buttons.pause, w - optSize - 12, 12);
     }
 
     _layoutPortrait(w, h) {
@@ -430,38 +437,45 @@ export class TouchControlsManager {
         const controlTop = offsetY + vpH; // bottom edge of game viewport
         const barH = h - controlTop;
 
-        // Sticks — lower portion of bottom bar
-        const stickY = controlTop + Math.floor(barH * 0.65);
+        const gap = 10;
+        const bSize = 50;
+        const optSize = 44;
+        const bottomMargin = 16;
+        const stickRadius = 50;
+
+        // Same layout philosophy as landscape — buttons in a horizontal row
+        // at the bottom of the control bar, sticks directly above them.
+        const buttonY = controlTop + barH - bottomMargin - bSize;
+        const stickY = buttonY - gap - stickRadius;
         const leftStickX = 80;
         const rightStickX = w - 80;
 
         this._posStick(this.leftBase, leftStickX, stickY);
         this._posStick(this.rightBase, rightStickX, stickY);
 
-        // Touch zones — cover the bottom bar
+        // Touch zones — only cover the stick area, not the button row
+        const zoneTop = controlTop;
+        const zoneH = (stickY + stickRadius) - zoneTop;
         this.leftZone.style.cssText = `
-            position: absolute; left: 0; top: ${controlTop}px;
-            width: 40%; height: ${barH}px;
+            position: absolute; left: 0; top: ${zoneTop}px;
+            width: 50%; height: ${zoneH}px;
             pointer-events: auto; touch-action: none;
         `;
         this.rightZone.style.cssText = `
-            position: absolute; right: 0; top: ${controlTop}px;
-            width: 40%; height: ${barH}px;
+            position: absolute; right: 0; top: ${zoneTop}px;
+            width: 50%; height: ${zoneH}px;
             pointer-events: auto; touch-action: none;
         `;
 
-        const gap = 10;
-        const bSize = 50;
-        const optSize = 44;
+        // Fire buttons — under left stick, side-by-side
+        this._posBtn(this.buttons.gun, leftStickX - bSize - gap / 2, buttonY);
+        this._posBtn(this.buttons.rocket, leftStickX + gap / 2, buttonY);
 
-        // Fire buttons — stacked above left stick
-        this._posBtn(this.buttons.gun, leftStickX - bSize / 2, stickY - 50 - bSize - gap);
-        this._posBtn(this.buttons.rocket, leftStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
-
-        // Option buttons — above right stick (side-by-side to fit the bar)
-        this._posBtn(this.buttons.eyesBleed, rightStickX - optSize - gap / 2, stickY - 50 - optSize - gap);
-        this._posBtn(this.buttons.mute, rightStickX + gap / 2, stickY - 50 - optSize - gap);
-        // Pause — top-center of bottom bar (away from both button columns)
+        // Option buttons — under right stick, side-by-side
+        const optY = buttonY + (bSize - optSize) / 2;
+        this._posBtn(this.buttons.eyesBleed, rightStickX - optSize - gap / 2, optY);
+        this._posBtn(this.buttons.mute, rightStickX + gap / 2, optY);
+        // Pause — top-center of bottom bar
         this._posBtn(this.buttons.pause, Math.floor(w / 2) - optSize / 2, controlTop + gap);
     }
 
