@@ -70,7 +70,7 @@ export class TouchControlsManager {
         this.leftLabel.textContent = 'MOVE';
         o.appendChild(this.leftBase);
 
-        const rightStick = this._createStick('#22d3ee');
+        const rightStick = this._createSlider('#22d3ee');
         this.rightBase = rightStick.base;
         this.rightKnob = rightStick.knob;
         this.rightLabel = rightStick.label;
@@ -119,6 +119,50 @@ export class TouchControlsManager {
         `;
 
         // Label — always visible above the base
+        const label = document.createElement('div');
+        label.style.cssText = `
+            position: absolute; left: 50%; top: -22px;
+            transform: translateX(-50%);
+            font-family: 'Courier New', monospace;
+            font-size: 11px; font-weight: bold;
+            letter-spacing: 3px; color: ${color}aa;
+            text-shadow: 0 0 6px ${color}40;
+            pointer-events: none; white-space: nowrap;
+        `;
+
+        base.appendChild(knob);
+        base.appendChild(label);
+
+        return { base, knob, label };
+    }
+
+    // Horizontal-only slider: pill-shaped track, knob slides left/right.
+    // Used for the look control where vertical input is intentionally
+    // ignored (Doom-style yaw-only turning).
+    _createSlider(color) {
+        const w = 150, h = 48;
+        const base = document.createElement('div');
+        base.style.cssText = `
+            position: absolute; width: ${w}px; height: ${h}px;
+            border: 2px solid ${color}55;
+            border-radius: ${h / 2}px;
+            background: ${color}0d;
+            box-shadow: 0 0 16px ${color}15;
+            pointer-events: none;
+        `;
+
+        const knob = document.createElement('div');
+        knob.style.cssText = `
+            position: absolute; width: 40px; height: 40px;
+            background: ${color}44;
+            border: 2px solid ${color}99;
+            border-radius: 50%;
+            left: 50%; top: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px ${color}30;
+            pointer-events: none;
+        `;
+
         const label = document.createElement('div');
         label.style.cssText = `
             position: absolute; left: 50%; top: -22px;
@@ -255,8 +299,9 @@ export class TouchControlsManager {
         s.origin.y = center.y;
 
         // Immediately compute deflection from where the touch landed
+        const horizontalOnly = side === 'right';
         let dx = t.clientX - s.origin.x;
-        let dy = t.clientY - s.origin.y;
+        let dy = horizontalOnly ? 0 : (t.clientY - s.origin.y);
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist > this.stickRadius) {
             dx = (dx / dist) * this.stickRadius;
@@ -270,12 +315,13 @@ export class TouchControlsManager {
     _onStickMove(e, side) {
         e.preventDefault();
         const s = this._getStickState(side);
+        const horizontalOnly = side === 'right';
 
         for (const t of e.changedTouches) {
             if (t.identifier !== s.touchId) continue;
 
             let dx = t.clientX - s.origin.x;
-            let dy = t.clientY - s.origin.y;
+            let dy = horizontalOnly ? 0 : (t.clientY - s.origin.y);
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist > this.stickRadius) {
@@ -368,6 +414,12 @@ export class TouchControlsManager {
         base.style.top = (cy - 50) + 'px';
     }
 
+    _posSlider(base, cx, cy) {
+        // Slider is 150×48 (see _createSlider).
+        base.style.left = (cx - 75) + 'px';
+        base.style.top = (cy - 24) + 'px';
+    }
+
     _getViewport(w, h) {
         const aspect = 16 / 9;
         const winAspect = w / h;
@@ -403,7 +455,7 @@ export class TouchControlsManager {
         const rightStickX = Math.min(w - 60, rightBarCenter);
 
         this._posStick(this.leftBase, leftStickX, stickY);
-        this._posStick(this.rightBase, rightStickX, stickY);
+        this._posSlider(this.rightBase, rightStickX, stickY);
 
         // Touch zones — only cover the upper portion so they don't eat the
         // button row's hit area.
@@ -450,7 +502,7 @@ export class TouchControlsManager {
         const rightStickX = w - 80;
 
         this._posStick(this.leftBase, leftStickX, stickY);
-        this._posStick(this.rightBase, rightStickX, stickY);
+        this._posSlider(this.rightBase, rightStickX, stickY);
 
         // Touch zones — only cover the stick area, not the button row
         const zoneTop = controlTop;
