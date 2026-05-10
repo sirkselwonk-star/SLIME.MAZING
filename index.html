@@ -163,22 +163,6 @@
             animation: pulse 2s ease-in-out infinite;
         }
 
-        /* Exit lock indicator */
-        #exit-status {
-            position: fixed;
-            bottom: 15px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 12px;
-            letter-spacing: 2px;
-            z-index: 11;
-            pointer-events: none;
-            transition: color 0.3s;
-        }
-
-        #exit-status.locked { color: #f87171; }
-        #exit-status.unlocked { color: #4ade80; }
-
         /* Seed display — small, dim, in the bottom-right corner so it's
            readable when sharing the seed with someone else but doesn't
            compete with the HUD. */
@@ -246,7 +230,6 @@
         <div class="prompt">[ CLICK TO PLAY AGAIN ]</div>
     </div>
 
-    <div id="exit-status" class="locked">EXIT LOCKED</div>
     <div id="seed-display">SEED: —</div>
 
     <script type="importmap">
@@ -258,28 +241,5 @@
     }
     </script>
     <script type="module" src="js/main.js?v=30"></script>
-    <script>
-        // Exit status indicator update
-        setInterval(() => {
-            const el = document.getElementById('exit-status');
-            if (!el) return;
-            // Check if game module has exposed state
-            if (window._gameState) {
-                if (window._gameState.state !== 'PLAYING') {
-                    el.style.display = 'none';
-                } else {
-                    el.style.display = 'block';
-                    if (window._gameState.exitUnlocked) {
-                        el.className = 'unlocked';
-                        el.textContent = 'EXIT UNLOCKED';
-                    } else {
-                        el.className = 'locked';
-                        const needed = Math.ceil(window._gameState.oreTotal * 0.5);
-                        el.textContent = `EXIT LOCKED — NEED ${needed - (window._gameState.oreCollected || 0)} MORE DIAMONDS`;
-                    }
-                }
-            }
-        }, 200);
-    </script>
 </body>
 </html>

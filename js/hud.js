@@ -30,6 +30,7 @@ export class HUD {
         this._drawCrosshair(ctx, w, h);
         this._drawHealthBar(ctx, state, w, h);
         this._drawAmmoCounter(ctx, state, w, h);
+        this._drawExitStatus(ctx, state, w, h);
         this._drawEyesBleedIndicator(ctx, state, w, h);
     }
 
@@ -438,6 +439,28 @@ export class HUD {
         // Rocket ammo
         ctx.fillStyle = '#fb923c';
         ctx.fillText('RKT: ∞', x, y + 14);
+    }
+
+    _drawExitStatus(ctx, state, w, h) {
+        const { exitUnlocked, oreCollected, oreTotal } = state;
+        if (oreTotal === undefined) return;
+
+        let text, color;
+        if (exitUnlocked) {
+            text = 'EXIT UNLOCKED';
+            color = '#4ade80';
+        } else {
+            const needed = Math.ceil(oreTotal * 0.5);
+            const remaining = Math.max(0, needed - (oreCollected || 0));
+            text = `EXIT LOCKED — NEED ${remaining} MORE DIAMONDS`;
+            color = '#f87171';
+        }
+
+        ctx.fillStyle = color;
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(text, w / 2, h - 14);
     }
 
     _drawDamageFlash(ctx, state, w, h) {
