@@ -19,7 +19,7 @@ export class TouchControlsManager {
         // Shared stick config
         this.stickRadius = 45;
         this.deadzone = 0.08;
-        this.lookRate = 32; // pixels per frame at full deflection, fed into mouse pipeline
+        this.lookRate = 96; // pixels per frame at full deflection, fed into mouse pipeline
 
         // Layout
         this.isLandscape = true;
