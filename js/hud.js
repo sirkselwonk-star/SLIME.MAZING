@@ -303,7 +303,7 @@ export class HUD {
         ctx.fillStyle = '#fb923c';
         ctx.font = 'bold 14px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`ORE: ${oreCollected || 0} / ${oreTotal}`, w - 15, 25);
+        ctx.fillText(`DIAMONDS: ${oreCollected || 0} / ${oreTotal}`, w - 15, 25);
 
         // Progress bar
         const barW = 120;

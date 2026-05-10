@@ -238,13 +238,13 @@
             <span>Right Click</span> Rocket &nbsp;&nbsp;
             <span>M</span> Mute &nbsp;&nbsp;
             <span>B</span> Eyes Bleed!<br>
-            Collect 50% ore to unlock exit &nbsp;&bull;&nbsp; Destroy walls with rockets
+            Collect 50% Diamonds to unlock exit &nbsp;&bull;&nbsp; Destroy walls with rockets
         </div>
     </div>
 
     <div id="level-complete">
         <h2>LEVEL COMPLETE</h2>
-        <div class="score">ORE MINED: <span id="final-score">0/0</span></div>
+        <div class="score">DIAMONDS MINED: <span id="final-score">0/0</span></div>
         <div class="prompt">[ CLICK TO PLAY AGAIN ]</div>
     </div>
 
@@ -277,7 +277,7 @@
                     } else {
                         el.className = 'locked';
                         const needed = Math.ceil(window._gameState.oreTotal * 0.5);
-                        el.textContent = `EXIT LOCKED — NEED ${needed - (window._gameState.oreCollected || 0)} MORE ORE`;
+                        el.textContent = `EXIT LOCKED — NEED ${needed - (window._gameState.oreCollected || 0)} MORE DIAMONDS`;
                     }
                 }
             }
