@@ -16,7 +16,7 @@ export class ShipControls {
         // Direct velocity used for the touch path — no thrust ramp, no
         // damping, no inertia. Snaps to value on stick deflection, drops
         // to 0 on release. Doom-style constant-speed walking.
-        this.touchMoveSpeed = 28;
+        this.touchMoveSpeed = 14;
 
         // FPS body — eye-height floor, ceiling clamp, gravity, jump
         this.eyeHeight = 1.5;     // matches mazeData.startWorld.y so spawn doesn't snap
