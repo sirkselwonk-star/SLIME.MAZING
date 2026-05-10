@@ -41,7 +41,7 @@ export class HUD {
 
         const mapSize = Math.min(180, w * 0.2);
         const mapX = 15;
-        const mapY = h - mapSize - 40;
+        const mapY = h - mapSize - 54;
 
         const text = `SEED: ${seed}`;
         ctx.font = '11px monospace';
@@ -155,7 +155,7 @@ export class HUD {
 
         const mapSize = Math.min(180, w * 0.2);
         const mapX = 15;
-        const mapY = h - mapSize - 40; // room below for the seed badge
+        const mapY = h - mapSize - 54; // room below for the seed badge + exit/speed strip
         const cellW = mapSize / cols;
         const cellH = mapSize / rows;
 
@@ -385,7 +385,7 @@ export class HUD {
         ctx.fillStyle = '#22d3ee';
         ctx.font = '11px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`SPD: ${speed.toFixed(1)}`, w - 15, h - 15);
+        ctx.fillText(`SPD: ${speed.toFixed(1)}`, w - 15, h - 8);
     }
 
     _drawCrosshair(ctx, w, h) {
@@ -493,7 +493,7 @@ export class HUD {
         ctx.font = '12px monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText(text, w / 2, h - 14);
+        ctx.fillText(text, w / 2, h - 8);
     }
 
     _drawDamageFlash(ctx, state, w, h) {

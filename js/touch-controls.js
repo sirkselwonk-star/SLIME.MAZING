@@ -497,7 +497,7 @@ export class TouchControlsManager {
         const gap = 10;
         const bSize = 50;
         const optSize = 44;
-        const topMargin = 12;
+        const topMargin = 28;
         const stickRadius = 50;
 
         // Sticks anchored directly under the game viewport so the whole
