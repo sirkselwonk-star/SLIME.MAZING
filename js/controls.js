@@ -13,6 +13,10 @@ export class ShipControls {
         this.brakeFactor = 0.93;   // horizontal drift/coast
         this.maxSpeed = 20;
         this.mouseSensitivity = 0.003;
+        // Direct velocity used for the touch path — no thrust ramp, no
+        // damping, no inertia. Snaps to value on stick deflection, drops
+        // to 0 on release. Doom-style constant-speed walking.
+        this.touchMoveSpeed = 28;
 
         // FPS body — eye-height floor, ceiling clamp, gravity, jump
         this.eyeHeight = 1.5;     // matches mazeData.startWorld.y so spawn doesn't snap
@@ -149,37 +153,34 @@ export class ShipControls {
         const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
         const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
-        let thrust = new THREE.Vector3(0, 0, 0);
-
-        if (this.keys['KeyW']) thrust.add(forward.clone().multiplyScalar(this.thrustPower * dt));
-        if (this.keys['KeyS']) thrust.add(forward.clone().multiplyScalar(-this.thrustPower * dt));
-        if (this.keys['KeyA']) thrust.add(right.clone().multiplyScalar(-this.thrustPower * dt));
-        if (this.keys['KeyD']) thrust.add(right.clone().multiplyScalar(this.thrustPower * dt));
-
-        // Analog touch thrust (joystick x = strafe, y = forward/back)
         if (this.touchActive) {
+            // Direct velocity — no acceleration, no damping. Stick deflection
+            // maps linearly to walking speed; release the stick and you stop.
             const tx = this.touchThrust.x;
             const ty = this.touchThrust.y;
-            if (tx !== 0 || ty !== 0) {
-                thrust.add(right.clone().multiplyScalar(tx * this.thrustPower * dt));
-                thrust.add(forward.clone().multiplyScalar(-ty * this.thrustPower * dt));
+            this.velocity.x = (right.x * tx + forward.x * -ty) * this.touchMoveSpeed;
+            this.velocity.z = (right.z * tx + forward.z * -ty) * this.touchMoveSpeed;
+        } else {
+            // Keyboard path — thrust accumulates, damped, capped.
+            const thrust = new THREE.Vector3(0, 0, 0);
+            if (this.keys['KeyW']) thrust.add(forward.clone().multiplyScalar(this.thrustPower * dt));
+            if (this.keys['KeyS']) thrust.add(forward.clone().multiplyScalar(-this.thrustPower * dt));
+            if (this.keys['KeyA']) thrust.add(right.clone().multiplyScalar(-this.thrustPower * dt));
+            if (this.keys['KeyD']) thrust.add(right.clone().multiplyScalar(this.thrustPower * dt));
+
+            this.velocity.x += thrust.x;
+            this.velocity.z += thrust.z;
+
+            const damping = Math.pow(this.brakeFactor, dt * 60);
+            this.velocity.x *= damping;
+            this.velocity.z *= damping;
+
+            const hSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+            if (hSpeed > this.maxSpeed) {
+                const scale = this.maxSpeed / hSpeed;
+                this.velocity.x *= scale;
+                this.velocity.z *= scale;
             }
-        }
-
-        this.velocity.x += thrust.x;
-        this.velocity.z += thrust.z;
-
-        // Damping — frame-rate independent (normalized to 60fps)
-        const damping = Math.pow(this.brakeFactor, dt * 60);
-        this.velocity.x *= damping;
-        this.velocity.z *= damping;
-
-        // Clamp horizontal speed
-        const hSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
-        if (hSpeed > this.maxSpeed) {
-            const scale = this.maxSpeed / hSpeed;
-            this.velocity.x *= scale;
-            this.velocity.z *= scale;
         }
 
         // --- Vertical (jump + gravity) ---
