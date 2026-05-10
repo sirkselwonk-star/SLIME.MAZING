@@ -443,16 +443,19 @@ export class TouchControlsManager {
         const bSize = 56;
         const optSize = 44;
         const stickRadius = 50;
+        const sideInset = 90;
 
-        // Lift the whole control cluster ~120 px from the bottom so thumbs
-        // rest higher up the screen.
-        const buttonY = h - 120 - bSize;
-        const stickY = buttonY - gap - stickRadius;
+        // Stick centered above its button stack. Cluster sits ~140 px from
+        // the bottom so the GUN/RKT vertical stack still has headroom.
+        const stickY = h - 140 - stickRadius;
+        const buttonY = stickY + stickRadius + gap;
 
+        // Pull sticks inward so the controls aren't crowding the edge of
+        // the screen, even when there's no pillarbox.
         const leftBarCenter = Math.floor(offsetX / 2);
         const rightBarCenter = w - Math.floor(offsetX / 2);
-        const leftStickX = Math.max(60, leftBarCenter);
-        const rightStickX = Math.min(w - 60, rightBarCenter);
+        const leftStickX = Math.max(sideInset, leftBarCenter);
+        const rightStickX = Math.min(w - sideInset, rightBarCenter);
 
         this._posStick(this.leftBase, leftStickX, stickY);
         this._posSlider(this.rightBase, rightStickX, stickY);
@@ -462,18 +465,19 @@ export class TouchControlsManager {
         const zoneH = stickY + stickRadius;
         this.leftZone.style.cssText = `
             position: absolute; left: 0; top: 0;
-            width: ${offsetX + 60}px; height: ${zoneH}px;
+            width: ${Math.max(offsetX + 60, sideInset + 60)}px; height: ${zoneH}px;
             pointer-events: auto; touch-action: none;
         `;
         this.rightZone.style.cssText = `
             position: absolute; right: 0; top: 0;
-            width: ${offsetX + 60}px; height: ${zoneH}px;
+            width: ${Math.max(offsetX + 60, sideInset + 60)}px; height: ${zoneH}px;
             pointer-events: auto; touch-action: none;
         `;
 
-        // Fire buttons — under left stick, side-by-side
-        this._posBtn(this.buttons.gun, leftStickX - bSize - gap / 2, buttonY);
-        this._posBtn(this.buttons.rocket, leftStickX + gap / 2, buttonY);
+        // Fire buttons — stacked vertically under the left stick (move side)
+        const fireX = leftStickX - bSize / 2;
+        this._posBtn(this.buttons.gun, fireX, buttonY);
+        this._posBtn(this.buttons.rocket, fireX, buttonY + bSize + gap);
 
         // Option buttons — under right stick, side-by-side
         const optY = buttonY + (bSize - optSize) / 2; // vertically centered with fire buttons
