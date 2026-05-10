@@ -30,8 +30,41 @@ export class HUD {
         this._drawCrosshair(ctx, w, h);
         this._drawHealthBar(ctx, state, w, h);
         this._drawAmmoCounter(ctx, state, w, h);
+        this._drawSeedDisplay(ctx, state, w, h);
         this._drawExitStatus(ctx, state, w, h);
         this._drawEyesBleedIndicator(ctx, state, w, h);
+    }
+
+    _drawSeedDisplay(ctx, state, w, h) {
+        const { seed } = state;
+        if (!seed) return;
+
+        const mapSize = Math.min(180, w * 0.2);
+        const mapX = 15;
+        const mapY = h - mapSize - 40;
+
+        const text = `SEED: ${seed}`;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+
+        const padX = 6;
+        const padY = 4;
+        const textW = ctx.measureText(text).width;
+        const boxW = Math.ceil(textW + padX * 2);
+        const boxH = 20;
+        const boxX = mapX;
+        const boxY = mapY + mapSize + 6;
+
+        ctx.fillStyle = 'rgba(5, 5, 16, 0.7)';
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+
+        ctx.strokeStyle = 'rgba(74, 222, 128, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+
+        ctx.fillStyle = '#4ade80';
+        ctx.fillText(text, boxX + padX, boxY + boxH / 2);
     }
 
     _drawVignette(ctx, state, w, h) {
@@ -122,7 +155,7 @@ export class HUD {
 
         const mapSize = Math.min(180, w * 0.2);
         const mapX = 15;
-        const mapY = h - mapSize - 15;
+        const mapY = h - mapSize - 40; // room below for the seed badge
         const cellW = mapSize / cols;
         const cellH = mapSize / rows;
 

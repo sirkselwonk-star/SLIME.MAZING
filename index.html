@@ -163,25 +163,6 @@
             animation: pulse 2s ease-in-out infinite;
         }
 
-        /* Seed display — small, dim, in the bottom-right corner so it's
-           readable when sharing the seed with someone else but doesn't
-           compete with the HUD. */
-        #seed-display {
-            position: fixed;
-            top: 8px;
-            left: 8px;
-            font-size: 13px;
-            letter-spacing: 1.5px;
-            color: #4ade80;
-            background: rgba(5, 5, 16, 0.7);
-            padding: 4px 8px;
-            border: 1px solid rgba(74, 222, 128, 0.4);
-            border-radius: 3px;
-            z-index: 200;
-            pointer-events: none;
-            user-select: text;
-            font-family: 'Courier New', monospace;
-        }
 
         /* Slime SVG decoration in menu */
         .slime-deco {
@@ -230,7 +211,6 @@
         <div class="prompt">[ CLICK TO PLAY AGAIN ]</div>
     </div>
 
-    <div id="seed-display">SEED: —</div>
 
     <script type="importmap">
     {
@@ -240,6 +220,6 @@
         }
     }
     </script>
-    <script type="module" src="js/main.js?v=31"></script>
+    <script type="module" src="js/main.js?v=32"></script>
 </body>
 </html>

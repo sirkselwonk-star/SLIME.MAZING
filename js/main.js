@@ -8,7 +8,7 @@ import {
     buildMazeGeometry, getWallColliders
 } from './maze.js?v=30';
 import { ShipControls } from './controls.js?v=15';
-import { HUD } from './hud.js?v=28';
+import { HUD } from './hud.js?v=29';
 import { GameState } from './game.js?v=18';
 import { WeaponSystem } from './weapons.js?v=14';
 import { EnemyManager } from './enemies.js?v=14';
@@ -54,8 +54,6 @@ function _initSeed() {
     const seed = param != null ? (parseInt(param, 10) >>> 0) : (Math.floor(Math.random() * 0xFFFFFFFF) >>> 0);
     setSeed(seed);
     console.log(`SLIME.MAZING seed: ${getSeed()}  (replay with ?seed=${getSeed()})`);
-    const el = document.getElementById('seed-display');
-    if (el) el.textContent = `SEED: ${getSeed()}`;
 }
 
 function init() {
@@ -735,6 +733,7 @@ function animate() {
         } : null,
         visitedCells: gameState.visitedCells,
         heading,
+        seed: getSeed(),
         oreCollected: gameState.oreCollected,
         oreTotal: gameState.oreTotal,
         speed: controls.getSpeed(),
