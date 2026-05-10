@@ -117,8 +117,7 @@ function init() {
     touchControls.onPause = () => {
         if (gameState.state === 'PLAYING') {
             const menu = document.getElementById('menu-screen');
-            menu.querySelector('h1').textContent = 'PAUSED';
-            menu.querySelector('.subtitle').textContent = 'SLIME.MAZING';
+            menu.querySelector('.subtitle').textContent = 'PAUSED';
             menu.querySelector('.prompt').textContent = isTouchDevice ? '[ TAP TO RESUME ]' : '[ CLICK TO RESUME ]';
             menu.style.display = 'flex';
             touchControls.hide();
@@ -189,12 +188,8 @@ function init() {
         if (isTouchDevice) return;
         if (!document.pointerLockElement && gameState && gameState.state === 'PLAYING') {
             const menu = document.getElementById('menu-screen');
-            const title = menu.querySelector('h1');
-            const subtitle = menu.querySelector('.subtitle');
-            const prompt = menu.querySelector('.prompt');
-            title.textContent = 'PAUSED';
-            subtitle.textContent = 'SLIME.MAZING';
-            prompt.textContent = '[ CLICK TO RESUME ]';
+            menu.querySelector('.subtitle').textContent = 'PAUSED';
+            menu.querySelector('.prompt').textContent = '[ CLICK TO RESUME ]';
             menu.style.display = 'flex';
         }
     });
@@ -497,9 +492,8 @@ function restartGame() {
     // Rebuild maze
     buildLevel();
 
-    // Reset menu title back to normal for next pause
+    // Reset subtitle/prompt back to normal for next pause (h1 wordmark stays put)
     const menu = document.getElementById('menu-screen');
-    menu.querySelector('h1').textContent = 'SLIME.MAZING';
     menu.querySelector('.subtitle').textContent = 'DESCENT INTO THE SLIME';
     menu.querySelector('.prompt').textContent = isTouchDevice ? '[ TAP TO START ]' : '[ CLICK TO START ]';
 
