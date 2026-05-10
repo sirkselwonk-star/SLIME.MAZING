@@ -390,12 +390,11 @@ export class TouchControlsManager {
         const gap = 10;
         const bSize = 56;
         const optSize = 44;
-        const bottomMargin = 24;
         const stickRadius = 50;
 
-        // Buttons sit in a single horizontal row at the bottom; sticks go
-        // directly above their respective button pair.
-        const buttonY = h - bottomMargin - bSize;
+        // Lift the whole control cluster ~120 px from the bottom so thumbs
+        // rest higher up the screen.
+        const buttonY = h - 120 - bSize;
         const stickY = buttonY - gap - stickRadius;
 
         const leftBarCenter = Math.floor(offsetX / 2);
@@ -426,27 +425,27 @@ export class TouchControlsManager {
 
         // Option buttons — under right stick, side-by-side
         const optY = buttonY + (bSize - optSize) / 2; // vertically centered with fire buttons
+        const muteX = rightStickX + gap / 2;
         this._posBtn(this.buttons.eyesBleed, rightStickX - optSize - gap / 2, optY);
-        this._posBtn(this.buttons.mute, rightStickX + gap / 2, optY);
-        // Pause — top-right corner, out of the thumb path
-        this._posBtn(this.buttons.pause, w - optSize - 12, 12);
+        this._posBtn(this.buttons.mute, muteX, optY);
+        // Pause — directly below mute, same column
+        this._posBtn(this.buttons.pause, muteX, optY + optSize + gap);
     }
 
     _layoutPortrait(w, h) {
         const { vpH, offsetY } = this._getViewport(w, h);
         const controlTop = offsetY + vpH; // bottom edge of game viewport
-        const barH = h - controlTop;
 
         const gap = 10;
         const bSize = 50;
         const optSize = 44;
-        const bottomMargin = 16;
+        const topMargin = 12;
         const stickRadius = 50;
 
-        // Same layout philosophy as landscape — buttons in a horizontal row
-        // at the bottom of the control bar, sticks directly above them.
-        const buttonY = controlTop + barH - bottomMargin - bSize;
-        const stickY = buttonY - gap - stickRadius;
+        // Sticks anchored directly under the game viewport so the whole
+        // control cluster sits as high as possible in the bottom bar.
+        const stickY = controlTop + topMargin + stickRadius;
+        const buttonY = stickY + stickRadius + gap;
         const leftStickX = 80;
         const rightStickX = w - 80;
 
@@ -473,10 +472,11 @@ export class TouchControlsManager {
 
         // Option buttons — under right stick, side-by-side
         const optY = buttonY + (bSize - optSize) / 2;
+        const muteX = rightStickX + gap / 2;
         this._posBtn(this.buttons.eyesBleed, rightStickX - optSize - gap / 2, optY);
-        this._posBtn(this.buttons.mute, rightStickX + gap / 2, optY);
-        // Pause — top-center of bottom bar
-        this._posBtn(this.buttons.pause, Math.floor(w / 2) - optSize / 2, controlTop + gap);
+        this._posBtn(this.buttons.mute, muteX, optY);
+        // Pause — directly below mute, same column
+        this._posBtn(this.buttons.pause, muteX, optY + optSize + gap);
     }
 
     _posBtn(el, x, y) {
