@@ -26,6 +26,9 @@ export class ShipControls {
         this.yaw = 0;
         this.pitch = 0;
         this.maxPitch = Math.PI / 2 - 0.05;
+        // Tighter pitch envelope on touch devices — keeps the camera horizon
+        // anchored so thumb-flicks can't tip the view past comfortable.
+        this.maxPitchTouch = Math.PI / 4;
 
         // Mouse smoothing state
         this.keys = {};
@@ -138,7 +141,8 @@ export class ShipControls {
 
         this.yaw += -this.smoothDX * this.mouseSensitivity;
         this.pitch += -this.smoothDY * this.mouseSensitivity;
-        this.pitch = Math.max(-this.maxPitch, Math.min(this.maxPitch, this.pitch));
+        const pitchCap = this.touchActive ? this.maxPitchTouch : this.maxPitch;
+        this.pitch = Math.max(-pitchCap, Math.min(pitchCap, this.pitch));
         cam.quaternion.setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
 
         // --- Translation (horizontal — forward/right derived from yaw alone) ---

@@ -19,7 +19,7 @@ export class TouchControlsManager {
         // Shared stick config
         this.stickRadius = 45;
         this.deadzone = 0.08;
-        this.lookRate = 24; // pixels per frame at full deflection, fed into mouse pipeline
+        this.lookRate = 14; // pixels per frame at full deflection, fed into mouse pipeline
 
         // Layout
         this.isLandscape = true;
@@ -415,15 +415,15 @@ export class TouchControlsManager {
         const bSize = 56;
         const optSize = 44;
 
-        // Fire buttons — right pillarbox bar, stacked next to the right stick
-        this._posBtn(this.buttons.gun, rightStickX - bSize / 2, stickY - 50 - bSize - gap);
-        this._posBtn(this.buttons.rocket, rightStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
+        // Fire buttons — left pillarbox bar, stacked above the left stick
+        this._posBtn(this.buttons.gun, leftStickX - bSize / 2, stickY - 50 - bSize - gap);
+        this._posBtn(this.buttons.rocket, leftStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
 
-        // Option buttons — left pillarbox bar, stacked above left stick
-        this._posBtn(this.buttons.eyesBleed, leftStickX - optSize / 2, stickY - 50 - optSize - gap);
-        this._posBtn(this.buttons.mute, leftStickX - optSize / 2, stickY - 50 - (optSize + gap) * 2);
-        // Pause — above right fire buttons
-        this._posBtn(this.buttons.pause, rightStickX - optSize / 2, stickY - 50 - (bSize + gap) * 2 - optSize - gap);
+        // Option buttons — right pillarbox bar, stacked above the right stick
+        this._posBtn(this.buttons.eyesBleed, rightStickX - optSize / 2, stickY - 50 - optSize - gap);
+        this._posBtn(this.buttons.mute, rightStickX - optSize / 2, stickY - 50 - (optSize + gap) * 2);
+        // Pause — above left fire buttons
+        this._posBtn(this.buttons.pause, leftStickX - optSize / 2, stickY - 50 - (bSize + gap) * 2 - optSize - gap);
     }
 
     _layoutPortrait(w, h) {
@@ -455,13 +455,13 @@ export class TouchControlsManager {
         const bSize = 50;
         const optSize = 44;
 
-        // Fire buttons — stacked above right stick
-        this._posBtn(this.buttons.gun, rightStickX - bSize / 2, stickY - 50 - bSize - gap);
-        this._posBtn(this.buttons.rocket, rightStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
+        // Fire buttons — stacked above left stick
+        this._posBtn(this.buttons.gun, leftStickX - bSize / 2, stickY - 50 - bSize - gap);
+        this._posBtn(this.buttons.rocket, leftStickX - bSize / 2, stickY - 50 - (bSize + gap) * 2);
 
-        // Option buttons — above left stick
-        this._posBtn(this.buttons.eyesBleed, leftStickX - optSize / 2, stickY - 50 - optSize - gap);
-        this._posBtn(this.buttons.mute, leftStickX + optSize / 2 + gap, stickY - 50 - optSize - gap);
+        // Option buttons — above right stick (side-by-side to fit the bar)
+        this._posBtn(this.buttons.eyesBleed, rightStickX - optSize - gap / 2, stickY - 50 - optSize - gap);
+        this._posBtn(this.buttons.mute, rightStickX + gap / 2, stickY - 50 - optSize - gap);
         // Pause — top-center of bottom bar (away from both button columns)
         this._posBtn(this.buttons.pause, Math.floor(w / 2) - optSize / 2, controlTop + gap);
     }
