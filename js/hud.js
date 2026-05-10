@@ -279,10 +279,10 @@ export class HUD {
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.stroke();
 
-        // North indicator
-        const rad = -heading;
-        const nx = cx + Math.sin(rad) * (radius - 5);
-        const ny = cy - Math.cos(rad) * (radius - 5);
+        // Facing-direction indicator — dot moves to match the bearing
+        // shown in the label below (N=top, E=right, S=bottom, W=left).
+        const nx = cx + Math.sin(heading) * (radius - 5);
+        const ny = cy - Math.cos(heading) * (radius - 5);
 
         ctx.fillStyle = '#f472b6';
         ctx.beginPath();
