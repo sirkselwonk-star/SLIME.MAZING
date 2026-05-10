@@ -424,11 +424,12 @@ export class HUD {
         const { gunAmmo, rocketAmmo } = state;
         if (gunAmmo === undefined) return;
 
-        const x = 15;
-        const y = h - 210; // above minimap
+        // Top-right, below ORE (y=25) and SLIME (y=50) counters.
+        const x = w - 15;
+        const y = 75;
 
         ctx.font = '11px monospace';
-        ctx.textAlign = 'left';
+        ctx.textAlign = 'right';
 
         // Gun ammo
         ctx.fillStyle = '#4ade80';
@@ -436,7 +437,7 @@ export class HUD {
 
         // Rocket ammo
         ctx.fillStyle = '#fb923c';
-        ctx.fillText('RKT: ∞', x, y + 16);
+        ctx.fillText('RKT: ∞', x, y + 14);
     }
 
     _drawDamageFlash(ctx, state, w, h) {
