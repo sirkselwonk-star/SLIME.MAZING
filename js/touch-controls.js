@@ -336,17 +336,16 @@ export class TouchControlsManager {
             this.controls.touchThrust.y = ly * scale;
         }
 
-        // --- Right stick → look rate (drone-style: hold = keep turning) ---
+        // --- Right stick → look rate (Doom-style: yaw only, no vertical look) ---
+        // Vertical thumb motion is intentionally ignored. The horizon stays
+        // locked level and the player only turns left/right.
         const rx = this.rightPos.x;
-        const ry = this.rightPos.y;
-        const rMag = Math.sqrt(rx * rx + ry * ry);
+        const rMag = Math.abs(rx);
 
         if (rMag > this.deadzone) {
             const remapped = (rMag - this.deadzone) / (1 - this.deadzone);
-            const scale = remapped / rMag;
             // Feed rate into mouse delta each frame — controls.update() smooths it
-            this.controls.mouseDX += rx * scale * this.lookRate;
-            this.controls.mouseDY += ry * scale * this.lookRate;
+            this.controls.mouseDX += Math.sign(rx) * remapped * this.lookRate;
         }
     }
 
