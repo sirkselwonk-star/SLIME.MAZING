@@ -1,3 +1,23 @@
 tools/.download_cache/
 tools/ktx-bin/
 __pycache__/
+
+# Debug captures
+*.heapsnapshot
+trace_*.json
+ffmpeg2pass-*.log*
+
+# Replay screenshots
+replay_*.png
+smooth_*.png
+compare_*.png
+eb_floor_check_*.png
+seed_display_*.png
+screenshot_*.png
+walk_*.png
+heap*.png
+v[0-9]_*.png
+
+# Replay videos
+*.webm
+*.mp4
