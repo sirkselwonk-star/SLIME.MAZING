@@ -9,9 +9,9 @@ export class ShipControls {
         this.velocity = { x: 0, y: 0, z: 0 };
 
         // Tuning
-        this.thrustPower = 24;
+        this.thrustPower = 36;
         this.brakeFactor = 0.93;   // horizontal drift/coast
-        this.maxSpeed = 20;
+        this.maxSpeed = 30;
         this.mouseSensitivity = 0.003;
         // Direct velocity used for the touch path — no thrust ramp, no
         // damping, no inertia. Snaps to value on stick deflection, drops
